@@ -21,8 +21,10 @@ function outline(rng, cx, cz, rx, rz, n, yaw = 0) {
  *   base   [[x, z], ...] corners, either winding
  *   h      height of the cut above y = 0, over the middle of the base
  *   tilt   slope of the cut as [rise per metre of x, rise per metre of z]
+ *   y0     height of the base; by default just under the ground, so nothing hovers
  *   apexY  height at which the sides would meet; higher gives more upright sides
  *   lean   [x, z] offset of that meeting point, to tip the block over
+ *   bottom close the underside, for a block that is lifted or overhangs
  *   tone   [side colour, top colour]
  * Returns its faces and the height of its top at any point, for seams and for stacking.
  */
@@ -70,18 +72,22 @@ function clip(poly, n, d) {
 }
 
 /**
- * A seam through a block: wherever its surface lies between two parallel planes, lay a strip
- * a finger's breadth proud of the rock. The plane passes through `through`, strikes across
- * the compass direction `az` and dips by `dip`; `width` is the thickness of the seam.
+ * A seam cutting through blocks: wherever their surface lies between two planes, lay a strip
+ * a finger's breadth proud of the rock, so one seam shows on the top and down the sides.
+ * The seam passes through `through`, strikes across the compass direction `az` and dips by
+ * `dip`. It is `width` thick there and, with `flare`, swells one way and pinches out the other.
  */
-function seam(m, blk, through, az, dip, width) {
-  const n = [Math.cos(az) * Math.cos(dip), Math.sin(dip), Math.sin(az) * Math.cos(dip)];
-  const d = dot(n, through);
-  for (const face of blk.faces) {
-    const strip = clip(clip(face, n, d - width / 2), scale(n, -1), -d - width / 2);
-    if (strip.length < 3) continue;
-    const up = scale(normalize(cross(sub(face[1], face[0]), sub(face[2], face[0]))), 0.014);
-    m.poly(strip.map((p) => add(p, up)));
+function seam(m, blocks, { through, az, dip = 0, width, flare = 0 }) {
+  const plane = (a) => [Math.cos(a) * Math.cos(dip), Math.sin(dip), Math.sin(a) * Math.cos(dip)];
+  const n0 = plane(az - flare / 2), n1 = scale(plane(az + flare / 2), -1);
+  for (const blk of blocks) {
+    for (const face of blk.faces) {
+      const facing = normalize(cross(sub(face[1], face[0]), sub(face[2], face[0])));
+      // A face lying nearly along the seam would be plated with it; leave those bare.
+      if (Math.abs(dot(facing, n0)) > 0.72) continue;
+      const strip = clip(clip(face, n0, dot(n0, through) - width / 2), n1, dot(n1, through) - width / 2);
+      if (strip.length >= 3) m.poly(strip.map((p) => add(p, scale(facing, 0.014))));
+    }
   }
 }
 
@@ -89,27 +95,30 @@ export function buildStone() {
   const m = new MeshBuilder(61);
   const rng = mulberry32(204);
   const rock = (cx, cz, rx, rz, n, yaw, opts) =>
-    block(m, outline(rng, cx, cz, rx, rz, n, yaw), { tone: [C.stone, C.stoneLight], ...opts });
+    block(m, outline(rng, cx, cz, rx, rz, n, yaw), { tone: [C.rock, C.rockLight], ...opts });
+  const weathered = [C.rockDark, C.rock];
 
-  // Tall parent block and three lesser ones split from it.
-  rock(-0.22, -0.18, 0.5, 0.44, 5, 0.3, { h: 1.34, tilt: [-0.32, 0.2], apexY: 5.5, lean: [0.25, 0.1] });
-  rock(0.38, 0.2, 0.42, 0.4, 4, 0.9, { h: 0.9, tilt: [0.28, 0.22], apexY: 4.2 });
-  rock(-0.5, 0.48, 0.36, 0.34, 4, 0.5, { h: 0.6, tilt: [-0.2, 0.3], apexY: 2.6 });
-  rock(0.36, -0.5, 0.42, 0.34, 4, 0.2, { h: 0.72, tilt: [0.25, -0.3], apexY: 3.2, tone: [C.stoneDark, C.stone] });
+  // Parent block with a shoulder split from it, and lesser blocks crowding round.
+  rock(-0.2, -0.2, 0.56, 0.5, 5, 0.3, { h: 1.24, tilt: [-0.3, 0.24], apexY: 4.6, lean: [0.2, 0.1] });
+  rock(0.24, -0.02, 0.44, 0.42, 4, 0.9, { h: 0.9, tilt: [0.26, 0.2], apexY: 3.6 });
+  rock(-0.5, 0.44, 0.36, 0.34, 5, 0.5, { h: 0.66, tilt: [-0.2, 0.3], apexY: 2.6 });
+  rock(0.46, 0.44, 0.36, 0.34, 4, 0.2, { h: 0.46, tilt: [0.04, 0.03], apexY: 2.2, tone: weathered });
+  // A bed split from the top of that one and slid a little askew.
+  rock(0.42, 0.4, 0.35, 0.3, 4, 0.75, { y0: 0.42, h: 0.6, tilt: [0.1, 0.06], apexY: 2.4, bottom: true });
+  rock(0.44, -0.56, 0.36, 0.3, 4, 0.5, { h: 0.6, tilt: [0.25, -0.3], apexY: 2.6, tone: weathered });
   // A slab fallen against them and another lying flat.
-  m.at(T(0.05, -0.04, 0.86), RY(Math.PI / 2), RZ(0.55), () =>
-    block(m, outline(rng, 0.31, 0, 0.42, 0.42, 4, Math.PI / 4), { h: 0.17, y0: 0, apexY: 3, bottom: true, tone: [C.stone, C.stoneLight] }));
-  rock(-0.68, -0.05, 0.2, 0.32, 4, 0.7, { h: 0.26, tilt: [-0.2, 0], apexY: 1.6 });
+  m.at(T(0.0, -0.04, 0.8), RY(Math.PI / 2 + 0.15), RZ(0.5), () =>
+    block(m, outline(rng, 0.3, 0, 0.4, 0.4, 4, Math.PI / 4), { h: 0.16, y0: 0, apexY: 3, bottom: true, tone: [C.rock, C.rockLight] }));
+  rock(-0.7, -0.12, 0.17, 0.32, 4, 0.7, { h: 0.26, tilt: [-0.2, 0], apexY: 1.6 });
   // Rubble at the foot.
-  rock(0.74, -0.1, 0.15, 0.15, 3, 0.4, { h: 0.2, tone: [C.stoneDark, C.stone] });
-  rock(0.64, 0.68, 0.18, 0.17, 4, 1.2, { h: 0.24, tilt: [0.3, 0.2] });
-  rock(-0.64, -0.64, 0.19, 0.18, 3, 2.0, { h: 0.3, tilt: [-0.3, -0.2], tone: [C.stoneDark, C.stone] });
-  rock(-0.08, -0.74, 0.14, 0.13, 3, 0.9, { h: 0.17 });
+  rock(0.76, 0.0, 0.13, 0.15, 3, 0.4, { h: 0.2, tone: weathered });
+  rock(-0.62, -0.68, 0.17, 0.16, 3, 2.0, { h: 0.28, tilt: [-0.3, -0.2], tone: weathered });
+  rock(-0.02, -0.76, 0.14, 0.12, 3, 0.9, { h: 0.17 });
 
   return {
     id: 'stone-deposit',
     label: 'Stone deposit',
-    note: 'Pale building stone split into blocks and slabs. One tile; neighbours run together into an outcrop.',
+    note: 'Pale grey building stone split into blocks and slabs. One tile; neighbours run together into an outcrop.',
     yaw: 0.5,
     roots: [{ name: 'stone-deposit', mesh: m.toMesh('stone-deposit') }],
   };
@@ -120,36 +129,39 @@ export function buildGold() {
   const rng = mulberry32(318);
   const rock = (cx, cz, rx, rz, n, yaw, opts) =>
     block(m, outline(rng, cx, cz, rx, rz, n, yaw), { tone: [C.ore, C.oreLight], ...opts });
-  const vein = (blk, through, az, dip, width, hex = C.gold) => {
-    m.color(hex, 0.07);
-    seam(m, blk, through, az, dip, width);
-  };
-  // A nugget standing out of the top of a block.
-  const nugget = (blk, x, z, r, hex = C.goldLight) =>
-    block(m, outline(rng, x, z, r, r, 4, x * 9), { y0: blk.top(x, z) - 0.06, h: blk.top(x, z) + 0.07, tilt: blk.tilt, tone: [C.gold, hex], vary: 0.08 });
+  const dark = [C.oreDark, C.ore];
 
-  // Dark host rock in broad lumps, lower and heavier than the stone outcrop.
-  const a = rock(0.14, -0.2, 0.55, 0.48, 5, 0.2, { h: 1.1, tilt: [0.2, 0.26], apexY: 3.6 });
-  const b = rock(-0.42, 0.32, 0.42, 0.4, 4, 0.6, { h: 0.76, tilt: [-0.25, 0.2], apexY: 2.8 });
-  const c = rock(0.46, 0.5, 0.36, 0.32, 4, 1.0, { h: 0.5, tilt: [0.2, 0.3], apexY: 2.0, tone: [C.oreDark, C.ore] });
-  const d = rock(-0.5, -0.52, 0.33, 0.31, 4, 0.3, { h: 0.56, tilt: [-0.2, -0.25], apexY: 2.2, tone: [C.oreDark, C.ore] });
-
-  // Seams of gold run through each lump, over the top and down the sides.
-  vein(a, [0.05, 1.0, -0.2], 0.5, 0.25, 0.13);
-  vein(a, [0.28, 1.0, -0.12], 2.2, -0.2, 0.09, C.goldLight);
-  vein(b, [-0.4, 0.7, 0.3], 1.9, 0.3, 0.12);
-  vein(b, [-0.52, 0.7, 0.3], 0.3, -0.15, 0.07, C.goldLight);
-  vein(c, [0.48, 0.45, 0.5], 1.2, 0.3, 0.11);
-  vein(d, [-0.5, 0.5, -0.5], 2.7, 0.2, 0.11, C.goldLight);
-  nugget(a, 0.3, -0.34, 0.1);
-  nugget(a, -0.12, -0.05, 0.08);
-  nugget(b, -0.34, 0.42, 0.085);
-
+  // Dark host rock in one heavy mass with lesser lumps against it, lower than the stone outcrop.
+  const a = rock(0.1, -0.16, 0.6, 0.52, 5, 0.2, { h: 1.08, tilt: [0.22, 0.26], apexY: 3.0, lean: [-0.1, 0.1] });
+  const b = rock(-0.42, 0.34, 0.42, 0.4, 5, 0.6, { h: 0.74, tilt: [-0.25, 0.2], apexY: 2.4 });
+  const c = rock(0.44, 0.44, 0.36, 0.32, 4, 1.0, { h: 0.5, tilt: [0.2, 0.3], apexY: 1.8, tone: dark });
+  const d = rock(-0.44, -0.48, 0.33, 0.31, 4, 0.3, { h: 0.56, tilt: [-0.2, -0.25], apexY: 2.0, tone: dark });
   // Broken ore at the foot.
-  rock(0.76, -0.12, 0.14, 0.14, 3, 0.5, { h: 0.2, tone: [C.gold, C.goldLight] });
-  rock(-0.72, -0.02, 0.16, 0.18, 4, 1.1, { h: 0.24, tilt: [-0.2, 0.2] });
-  rock(0.02, 0.76, 0.15, 0.14, 3, 2.2, { h: 0.18, tone: [C.gold, C.goldLight] });
-  rock(0.72, -0.62, 0.17, 0.16, 4, 0.2, { h: 0.26, tone: [C.oreDark, C.ore] });
+  const rubble = [
+    rock(0.74, -0.22, 0.15, 0.16, 4, 0.5, { h: 0.22, tilt: [0.2, 0] }),
+    rock(-0.02, 0.76, 0.15, 0.13, 3, 2.2, { h: 0.18 }),
+    rock(0.6, -0.68, 0.17, 0.16, 4, 0.2, { h: 0.26, tone: dark }),
+    rock(-0.76, -0.06, 0.12, 0.15, 3, 1.1, { h: 0.2, tone: dark }),
+  ];
+
+  // One system of seams runs through the mass: a main seam and a thinner one beside it on
+  // the same strike, each swelling one way and pinching out the other, and a branch leaving
+  // them at a shallow angle. A cross seam takes in the outlying lumps, so gold shows from
+  // every side.
+  const all = [a, b, c, d, ...rubble];
+  m.color(C.gold, 0.07);
+  seam(m, all, { through: [0.0, 0.5, 0.0], az: 0.45, dip: 0.2, width: 0.1, flare: 0.07 });
+  seam(m, [b, c, d, ...rubble], { through: [0.45, 0.5, -0.3], az: 1.0, dip: 0.2, width: 0.075, flare: -0.07 });
+  seam(m, [c, d, ...rubble], { through: [0.0, 0.3, -0.02], az: 2.36, dip: 0.15, width: 0.085, flare: 0.03 });
+  m.color(C.goldLight, 0.07);
+  seam(m, all, { through: [-0.27, 0.5, -0.1], az: 0.45, dip: 0.2, width: 0.05, flare: -0.05 });
+
+  // Nuggets by the seams, standing a little out of the rock.
+  const nugget = (blk, x, z, r) =>
+    block(m, outline(rng, x, z, r, r * 0.8, 5, x * 9), { y0: blk.top(x, z) - 0.07, h: blk.top(x, z) + 0.05, tilt: blk.tilt, apexY: blk.top(x, z) + 0.2, tone: [C.gold, C.goldLight], vary: 0.08 });
+  nugget(a, 0.2, -0.36, 0.11);
+  nugget(a, 0.02, 0.04, 0.085);
+  nugget(b, -0.36, 0.4, 0.09);
 
   return {
     id: 'gold-deposit',

@@ -91,7 +91,7 @@ export function build() {
   for (const s of [-1, 1]) {
     const x = s * (hl + proud - 0.08);
     m.color(C.timber, 0.06);
-    m.at(T(x, wallH - 0.1, zc), () => m.box(0.16, 0.2, W + 0.1)); // tie beam
+    m.at(T(x, wallH - 0.1, zc), () => m.box(0.16, 0.2, W - 0.1)); // tie beam, its ends lost in the thatch
     for (const dz of [-hw / 3, hw / 3]) m.at(T(x, 0, zc + dz), () => m.box(0.16, wallH - 0.1, 0.16, { top: false, bottom: false }));
     m.at(T(x, wallH + 0.1, zc), () => m.box(0.16, gableTop - wallH - 1.1, 0.2, { bottom: false })); // king post
     // Smoke gap under the peak.
@@ -112,7 +112,7 @@ export function build() {
       thick, z0: -hl - gableOver, z1: hl + gableOver,
       courses: [[0, 0.3, C.thatch], [0.27, 0.55, C.thatchMid], [0.52, 0.79, C.thatch], [0.76, 1, C.thatchMid]],
     });
-    for (const end of [-1, 1]) gableBoards(m, roof, end * (hl + gableOver + 0.06), { out: end });
+    for (const end of [-1, 1]) gableBoards(m, roof, end * (hl + gableOver), { out: end });
     // Paired timbers hung astride the ridge to hold the roll down in a wind.
     const on = pitch(roof);
     m.color(C.timber, 0.07);
@@ -153,10 +153,10 @@ export function build() {
   const porch = { run: pRun, rise: pRise, eaveY: pEave };
   const pFront = pz + 0.26;
   thatch(m, porch, { thick: 0.3, z0: zf - 1.4, z1: pFront, courses: [[0, 0.56, C.thatchMid], [0.5, 1, C.thatch]], roll: 0.12, back: false });
-  gableBoards(m, porch, pFront + 0.06, { past: 0.2, w: 0.08, d: 0.18 });
+  gableBoards(m, porch, pFront, { past: 0.2, w: 0.08, d: 0.18 });
 
   // Owner's colours at the entrance: a banner hung from the porch gable and a round shield on each post.
-  hangingBanner(m, [0, 3.04, pFront + 0.25], { width: 1.0, height: 1.22 });
+  hangingBanner(m, [0, 3.04, pFront + 0.2], { width: 1.0, height: 1.22 });
   for (const sx of [-1, 1]) {
     m.at(T(sx * (pw + 0.16), 1.26, pz), RX(Math.PI / 2), () => {
       m.team().cyl(0.43, 0.43, 0.05, 8, { bottom: false, phase: Math.PI / 8 });
@@ -188,7 +188,7 @@ export function build() {
       const x = -2.75 + (i - (n - 1) / 2) * r * 2.05;
       m.at(T(x, r + row * r * 1.75, zf + 0.07), RX(Math.PI / 2), RY(i * 1.3 + row), () => {
         m.color(C.bark, 0.08).cyl(r, r, logL, 5, { top: false, bottom: false });
-        m.color(C.timberLight, 0.06).poly(Array.from({ length: 5 }, (_, k) => [r * Math.cos(-k * 1.2566), logL, r * Math.sin(-k * 1.2566)]));
+        m.color(C.timberLight, 0.06).poly(Array.from({ length: 5 }, (_, k) => [r * Math.cos(k * 0.4 * Math.PI), logL, -r * Math.sin(k * 0.4 * Math.PI)]));
       });
     }
   });

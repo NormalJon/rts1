@@ -7,47 +7,46 @@ import { C } from '../palette.mjs';
 export function build() {
   const m = new MeshBuilder(83);
   const rng = mulberry32(29);
-  const squash = 0.8;
 
-  // Overlapping leafy mounds: [x, y, z, radius, turn].
+  // One broad leafy dome with two lower mounds pushing out of it, all sunk into the ground:
+  // [x, y, z, radius, height as a share of the radius, turn, facet detail, lumpiness].
   const mounds = [
-    [0.02, 0.6, -0.04, 0.5, 0.0],
-    [0.36, 0.42, 0.2, 0.4, 1.1],
-    [-0.36, 0.4, 0.16, 0.41, 2.3],
-    [-0.14, 0.4, -0.38, 0.39, 0.7],
-    [0.3, 0.36, -0.3, 0.34, 3.1],
-    [-0.02, 0.34, 0.44, 0.33, 1.9],
-  ].map(([x, y, z, r, turn]) => {
-    const M = mul(T(x, y, z), mul(RY(turn), S(1, squash, 1)));
-    return { c: [x, y, z], r, verts: icosphere(0).verts.map((v) => transformPoint(M, scale(v, r * (0.9 + rng() * 0.2)))) };
+    [0.02, 0.3, -0.04, 0.68, 1.12, 0.4, 1, 0.13],
+    [0.4, 0.24, 0.3, 0.37, 0.95, 1.1, 0, 0.08],
+    [-0.45, 0.22, 0.16, 0.34, 0.95, 2.3, 0, 0.08],
+  ].map(([x, y, z, r, tall, turn, detail, lumps]) => {
+    const M = mul(T(x, y, z), mul(RY(turn), S(1, tall, 1)));
+    const { verts, faces } = icosphere(detail);
+    const lumpy = verts.map((v) => transformPoint(M, scale(v, r * (1 + (rng() * 2 - 1) * lumps))));
+    // Whatever would hang below the ground is drawn up to it, so the bush meets the grass in a skirt.
+    return { c: [x, y, z], r, tall, faces, core: detail ? 0.78 : 0.68, verts: lumpy.map((p) => [p[0], Math.max(p[1], -0.03), p[2]]) };
   });
-  // Is a point inside a mound shrunk by k? With k below about 0.7 the answer is safe for the faceted shape.
-  const within = (p, s, k) => Math.hypot((p[0] - s.c[0]) / s.r, (p[1] - s.c[1]) / (s.r * squash), (p[2] - s.c[2]) / s.r) < k;
+  // Is a point inside a mound shrunk by k? At k = mound.core the answer holds for the faceted shape too.
+  const within = (p, s, k) => Math.hypot((p[0] - s.c[0]) / s.r, (p[1] - s.c[1]) / (s.r * s.tall), (p[2] - s.c[2]) / s.r) < k;
 
   const lo = hexToRgb(C.bushLo), hi = hexToRgb(C.bushHi);
   const berries = [];
   for (const mound of mounds) {
-    for (const f of icosphere(0).faces) {
+    for (const f of mound.faces) {
       const tri = f.map((i) => mound.verts[i]);
-      // Leave out facets swallowed by a neighbour or by the ground.
+      // Leave out facets swallowed by the ground or by another mound.
       if (tri.every((p) => p[1] < 0)) continue;
-      if (mounds.some((o) => o !== mound && tri.every((p) => within(p, o, 0.68)))) continue;
+      if (mounds.some((o) => o !== mound && tri.every((p) => within(p, o, o.core)))) continue;
       const n = normalize(cross(sub(tri[1], tri[0]), sub(tri[2], tri[0])));
       const k = 1 + (rng() * 2 - 1) * 0.07;
       m.poly(tri, lerp3(lo, hi, Math.min(1, Math.max(0, n[1] * 0.6 + 0.45))).map((c) => c * k));
       const mid = scale(add(add(tri[0], tri[1]), tri[2]), 1 / 3);
-      if (n[1] > -0.1 && mid[1] > 0.3 && !mounds.some((o) => o !== mound && within(mid, o, 0.95))) berries.push({ tri, mid, n });
+      if (n[1] > 0.05 && mid[1] > 0.3 && !mounds.some((o) => o !== mound && within(mid, o, 1))) berries.push({ tri, mid, n });
     }
   }
 
-  // Berry clusters on about two facets in three: a red one, and often a ripe dark one beside it.
-  const berry = (at, n, r, hex) =>
-    m.color(hex, 0.1).at(alongSegment(sub(at, scale(n, 0.02)), add(at, n)), () => m.cyl(r, 0, r * 0.95, 5, { bottom: false, phase: at[0] * 40 }));
+  // Berry clusters on two in five of those facets: a red one, and on some a ripe dark one beside it.
+  const berry = (at, n, r, sides, hex) =>
+    m.color(hex, 0.1).at(alongSegment(sub(at, scale(n, 0.02)), add(at, n)), () => m.cyl(r, 0, r * 0.9, sides, { bottom: false, phase: at[0] * 40 }));
   berries.forEach(({ tri, mid, n }, i) => {
-    if (i % 3 === 2) return;
-    const corner = tri[i % 3];
-    berry(lerp3(mid, corner, 0.12), n, 0.085, C.berry);
-    if (i % 2 === 0) berry(lerp3(mid, tri[(i + 1) % 3], 0.5), n, 0.06, C.berryRipe);
+    if (i % 5 !== 0 && i % 5 !== 2) return;
+    berry(lerp3(mid, tri[i % 3], 0.1), n, 0.09, 5, C.berry);
+    if (i % 10 === 0) berry(lerp3(mid, tri[(i + 1) % 3], 0.55), n, 0.065, 4, C.berryRipe);
   });
 
   return {
