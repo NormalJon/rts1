@@ -43,7 +43,7 @@ export interface StaticModel {
 }
 
 export interface Models {
-  /** Indexed like UNIT_TYPES in the simulation. */
+  /** Indexed like ENTITY_TYPES in the simulation. */
   readonly units: readonly UnitModel[];
   readonly oak: StaticModel;
   readonly conifer: StaticModel;

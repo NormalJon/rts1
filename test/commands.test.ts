@@ -3,7 +3,7 @@ import { CommandQueue, type Command, type ScheduledCommand } from '../src/sim/co
 import { fromInt, length, ONE, toFloat } from '../src/sim/fixed';
 import { hashWorld } from '../src/sim/hash';
 import { step } from '../src/sim/sim';
-import { UnitKind } from '../src/sim/unitTypes';
+import { Kind } from '../src/sim/entityTypes';
 import { defaultConfig, entityIndex, MoveState, World } from '../src/sim/world';
 
 const stop = (tick: number, player: number, seq: number): ScheduledCommand => ({
@@ -60,8 +60,8 @@ describe('command queue', () => {
 describe('applying commands', () => {
   const setup = (): { world: World; mine: number; theirs: number } => {
     const world = new World(defaultConfig());
-    const mine = world.spawn(0, UnitKind.Spearman, fromInt(10), fromInt(10));
-    const theirs = world.spawn(1, UnitKind.Spearman, fromInt(20), fromInt(20));
+    const mine = world.spawnUnit(0, Kind.Spearman, fromInt(10), fromInt(10));
+    const theirs = world.spawnUnit(1, Kind.Spearman, fromInt(20), fromInt(20));
     return { world, mine, theirs };
   };
   let nextSeq = 0;
@@ -117,7 +117,7 @@ describe('applying commands', () => {
   it('ignores handles to units that no longer exist', () => {
     const { world, mine } = setup();
     world.destroy(mine);
-    const replacement = world.spawn(0, UnitKind.Spearman, fromInt(10), fromInt(10));
+    const replacement = world.spawnUnit(0, Kind.Spearman, fromInt(10), fromInt(10));
     send(world, 0, { kind: 'move', units: [mine], x: 0, y: 0 });
     run(world, 2);
     expect(world.moveState[entityIndex(replacement)]).toBe(MoveState.Idle);
@@ -187,8 +187,8 @@ describe('applying commands', () => {
   it('survives malformed commands without changing anything', () => {
     const { world } = setup();
     const untouched = new World(defaultConfig());
-    untouched.spawn(0, UnitKind.Spearman, fromInt(10), fromInt(10));
-    untouched.spawn(1, UnitKind.Spearman, fromInt(20), fromInt(20));
+    untouched.spawnUnit(0, Kind.Spearman, fromInt(10), fromInt(10));
+    untouched.spawnUnit(1, Kind.Spearman, fromInt(20), fromInt(20));
 
     const garbage = [
       { kind: 'move', units: 'all', x: 1, y: 1 },
@@ -215,7 +215,7 @@ describe('tick rate independence', () => {
   it('covers the same ground in the same time at any tick rate', () => {
     for (const tickRate of [8, 20, 30, 60]) {
       const world = new World(defaultConfig({ tickRate }));
-      const id = world.spawn(0, UnitKind.Spearman, fromInt(10), fromInt(10));
+      const id = world.spawnUnit(0, Kind.Spearman, fromInt(10), fromInt(10));
       world.commands.schedule(
         { tick: 0, player: 0, seq: 0, command: { kind: 'move', units: [id], x: fromInt(50), y: fromInt(10) } },
         0,

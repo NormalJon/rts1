@@ -1,7 +1,7 @@
+import { ENTITY_TYPES, RESOURCE_COUNT, resourceOfTerrain } from '../src/sim/entityTypes';
 import { fromInt, length } from '../src/sim/fixed';
 import { hashWorld } from '../src/sim/hash';
 import { Rng } from '../src/sim/rng';
-import { UNIT_TYPES } from '../src/sim/unitTypes';
 import { ORDER_QUEUE_LENGTH, type SimConfig, type World } from '../src/sim/world';
 import { LocalSession } from '../src/session/localSession';
 
@@ -29,8 +29,22 @@ export function playRandomMatch(
   const { world } = session;
   const randomX = (): number => fromInt(script.nextInt(config.mapWidth));
   const randomY = (): number => fromInt(script.nextInt(config.mapHeight));
-  const randomGroup = (player: number): number[] => {
-    const mine = world.livingEntities(player);
+  const unitTypes = ENTITY_TYPES.map((type, index) => (type.building ? -1 : index)).filter((index) => index >= 0);
+  const randomUnitType = (): number => unitTypes[script.nextInt(unitTypes.length)]!;
+  /** Usually a resource tile not far from the player's start; now and then any tile at all. */
+  const randomTile = (player: number): number => {
+    if (script.chance(1, 6)) return script.nextInt(world.map.tileCount);
+    const start = world.map.starts[player];
+    const tx = (start ? start.x >> 16 : script.nextInt(config.mapWidth)) + script.nextInt(21) - 10;
+    const ty = (start ? start.y >> 16 : script.nextInt(config.mapHeight)) + script.nextInt(21) - 10;
+    const found = world.map.nearestTile(tx, ty, 20, (tile) => resourceOfTerrain(world.map.terrain[tile]!) !== -1);
+    return found === -1 ? script.nextInt(world.map.tileCount) : found;
+  };
+  const randomGroup = (player: number, forWork = false): number[] => {
+    // Buildings are included on purpose: orders to them must be ignored. A
+    // third of the units are never marched about, so that some villagers get
+    // to finish a round trip.
+    const mine = world.livingEntities(player).filter((id) => forWork || (id & 0xfffff) % 3 !== 0);
     // Sometimes everyone, sometimes one unit, usually about half.
     const pick = script.nextInt(6);
     if (pick === 0) return mine;
@@ -45,8 +59,12 @@ export function playRandomMatch(
       x: start?.x ?? randomX(),
       y: start?.y ?? randomY(),
       count: 20,
-      unitType: script.nextInt(UNIT_TYPES.length),
+      unitType: randomUnitType(),
     });
+    // As a player would: everyone who can work starts on something near home.
+    session.inputDelayTicks = 2;
+    session.issue(player, { kind: 'gather', units: world.livingEntities(player), tile: randomTile(player) });
+    session.inputDelayTicks = 0;
   }
 
   const hashes: number[] = [];
@@ -71,8 +89,16 @@ export function playRandomMatch(
           x: randomX(),
           y: randomY(),
           count: 1 + script.nextInt(6),
-          unitType: script.nextInt(UNIT_TYPES.length),
+          unitType: randomUnitType(),
         });
+      }
+      if (script.chance(1, 240)) {
+        session.issue(player, { kind: 'gather', units: randomGroup(player, true), tile: randomTile(player) });
+      }
+      if (script.chance(1, 400)) {
+        const buildings = world.livingEntities(player).filter((id) => !world.livingUnits(player).includes(id));
+        const target = buildings.length > 0 ? buildings[script.nextInt(buildings.length)]! : script.nextInt(50);
+        session.issue(player, { kind: 'deliver', units: randomGroup(player, true), target });
       }
     }
     session.step();
@@ -86,8 +112,70 @@ export function playRandomMatch(
  * Things that must hold after every tick, whatever orders were given. Returns
  * a description of the first one broken, or null.
  */
+const startingTotals = new WeakMap<World, number[]>();
+
+/** Everything of each resource there is: in the ground, on villagers' backs and in the stores. */
+export function resourceTotals(world: World): number[] {
+  const totals = new Array<number>(RESOURCE_COUNT).fill(0);
+  const { map } = world;
+  for (let tile = 0; tile < map.tileCount; tile++) {
+    const resource = resourceOfTerrain(map.terrain[tile]!);
+    if (resource !== -1) totals[resource]! += map.amount[tile]!;
+    else if (map.amount[tile] !== 0) totals[0] = NaN; // an amount where there is no resource
+  }
+  for (let slot = 0; slot < world.highWater; slot++) {
+    if (world.alive[slot] === 1) totals[world.carryKind[slot]!]! += world.carry[slot]!;
+  }
+  for (let i = 0; i < world.stock.length; i++) totals[i % RESOURCE_COUNT]! += world.stock[i]!;
+  return totals;
+}
+
+/** Whether the map's record of which tiles connect matches a flood fill done from scratch. */
+export function regionsAreRight(world: World): boolean {
+  const { map } = world;
+  const seen = new Int32Array(map.tileCount);
+  const used = new Set<number>();
+  for (let seed = 0; seed < map.tileCount; seed++) {
+    if (map.passable[seed] === 0) {
+      if (map.region[seed] !== 0) return false;
+      continue;
+    }
+    if (seen[seed] === 1) continue;
+    const region = map.region[seed]!;
+    if (region === 0 || used.has(region)) return false;
+    used.add(region);
+    const stack = [seed];
+    seen[seed] = 1;
+    while (stack.length > 0) {
+      const tile = stack.pop()!;
+      if (map.region[tile] !== region) return false;
+      const tx = tile % map.width;
+      const ty = Math.floor(tile / map.width);
+      for (let dir = 0; dir < 8; dir++) {
+        if (!map.canStep(tx, ty, dir)) continue;
+        const dx = [1, 1, 0, -1, -1, -1, 0, 1][dir]!;
+        const dy = [0, 1, 1, 1, 0, -1, -1, -1][dir]!;
+        const other = (ty + dy) * map.width + tx + dx;
+        if (seen[other] === 0) {
+          seen[other] = 1;
+          stack.push(other);
+        }
+      }
+    }
+  }
+  return true;
+}
+
 export function brokenInvariant(world: World): string | null {
   const { map } = world;
+  // Nothing is created or lost: gathering only moves resources about.
+  const totals = resourceTotals(world);
+  const before = startingTotals.get(world);
+  if (before === undefined) startingTotals.set(world, totals);
+  else if (totals.some((total, i) => total !== before[i])) {
+    return `resources are not conserved: started with ${before.join('/')}, now ${totals.join('/')}`;
+  }
+  if (world.tick % 20 === 0 && !regionsAreRight(world)) return 'the map\'s connected regions are out of date';
   const claims = new Map<number, number>();
   const claim = (group: number): void => {
     if (group !== 0) claims.set(group, (claims.get(group) ?? 0) + 1);
@@ -96,6 +184,12 @@ export function brokenInvariant(world: World): string | null {
     if (world.alive[slot] === 0) continue;
     const x = world.posX[slot]!;
     const y = world.posY[slot]!;
+    const type = ENTITY_TYPES[world.entityType[slot]!]!;
+    if (world.carry[slot]! > type.carries) return `unit ${slot} carries more than it can`;
+    if (world.mobile[slot] === 0) {
+      if (world.moveState[slot] !== 0 || world.group[slot] !== 0) return `building ${slot} has been given orders`;
+      continue;
+    }
     if (x < 0 || y < 0 || x > map.maxX || y > map.maxY) return `unit ${slot} is off the map`;
     if (map.passable[map.tileAt(x, y)] === 0) return `unit ${slot} is standing in an obstacle`;
     claim(world.group[slot]!);
@@ -116,9 +210,9 @@ export function brokenInvariant(world: World): string | null {
 export function smallestGap(world: World): number {
   let smallest = Infinity;
   for (let a = 0; a < world.highWater; a++) {
-    if (world.alive[a] === 0) continue;
+    if (world.alive[a] === 0 || world.mobile[a] === 0) continue;
     for (let b = a + 1; b < world.highWater; b++) {
-      if (world.alive[b] === 0) continue;
+      if (world.alive[b] === 0 || world.mobile[b] === 0) continue;
       const gap =
         length(world.posX[a]! - world.posX[b]!, world.posY[a]! - world.posY[b]!) -
         world.radius[a]! -

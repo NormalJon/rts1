@@ -119,7 +119,13 @@ export function routingSystem(world: World): void {
       world.activeSearch = startSearch(world, request);
       if (world.activeSearch === null) continue;
     }
-    const active = world.activeSearch;
+    let active: ActiveSearch | null = world.activeSearch;
+    if (active.mapVersion !== world.map.passVersion) {
+      // A tree has fallen or a building gone up since this search began, so
+      // what it has worked out may be wrong. Begin it again on the new map.
+      active = world.activeSearch = startSearch(world, active.request);
+      if (active === null) continue;
+    }
     budget -= active.search.run(budget);
     if (!active.search.done) return;
     world.activeSearch = null;
@@ -170,7 +176,7 @@ export function restoreSearch(
     request.kind === 'path'
       ? new AStarSearch(world.map, world.searchScratch, start, goal)
       : new FieldSearch(world.map, world.searchScratch, start, targets);
-  return { request, start, goal, targets, search };
+  return { request, mapVersion: world.map.passVersion, start, goal, targets, search };
 }
 
 function finishSearch(world: World, active: ActiveSearch): void {

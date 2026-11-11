@@ -3,8 +3,10 @@
  *
  * Generated maps are symmetric under a half turn about the centre: whatever
  * player 1 finds going out from their start, player 2 finds too. A river runs
- * between the two starts and can be crossed at three fords. Everything is
- * integer arithmetic, so the same seed gives the same map on every machine.
+ * between the two starts and can be crossed at three fords. Each start has
+ * berries, a copse, gold and stone within a short walk, and more gold and stone
+ * lie further out to be fought over. Everything is integer arithmetic, so the
+ * same seed gives the same map on every machine.
  */
 
 import { fromRatio, HALF, idiv, length, mul, mulDiv, ONE, type Fixed } from './fixed';
@@ -15,7 +17,7 @@ export type MapSpec =
   | { readonly kind: 'flat' }
   /**
    * Drawn by hand, one string per row: . grass, T forest, ~ water, , shallows,
-   * # rock, and digits 0 to 7 for player starts.
+   * # rock, b berries, s stone, g gold, and digits 0 to 7 for player starts.
    */
   | { readonly kind: 'ascii'; readonly rows: readonly string[] }
   | { readonly kind: 'generated' };
@@ -75,6 +77,9 @@ function fromAscii(width: number, height: number, rows: readonly string[]): Game
     '~': Terrain.Water,
     ',': Terrain.Shallows,
     '#': Terrain.Rock,
+    b: Terrain.Berries,
+    s: Terrain.Stone,
+    g: Terrain.Gold,
   };
   for (let ty = 0; ty < height; ty++) {
     for (let tx = 0; tx < width; tx++) {
@@ -127,6 +132,60 @@ const START_CLEARING = 10; // tiles of open ground around each start
 const FORD_CLEARING = 5;
 const FOREST_SHARE = 20; // percent of tiles
 const ROCK_SHARE = 3;
+/** Nothing is placed this close to a start: the town centre and the ground round it. */
+const TOWN_RESERVE = 4;
+/** How far from any start the contested deposits lie, at least. */
+const NEUTRAL_DISTANCE = 16;
+
+type Cells = readonly (readonly [number, number])[];
+const BLOCK_3X2: Cells = [
+  [0, 0],
+  [1, 0],
+  [2, 0],
+  [0, 1],
+  [1, 1],
+  [2, 1],
+];
+const BLOCK_2X2: Cells = [
+  [0, 0],
+  [1, 0],
+  [0, 1],
+  [1, 1],
+];
+/** A rough disc about five tiles across. */
+const COPSE: Cells = (() => {
+  const cells: [number, number][] = [];
+  for (let y = -2; y <= 2; y++) {
+    for (let x = -2; x <= 2; x++) if (x * x + y * y <= 6) cells.push([x, y]);
+  }
+  return cells;
+})();
+/** What every start gets, and how many tiles away. */
+const STARTING_RESOURCES: readonly (readonly [number, Cells, number])[] = [
+  [Terrain.Berries, BLOCK_3X2, 6],
+  [Terrain.Forest, COPSE, 8],
+  [Terrain.Gold, BLOCK_3X2, 8],
+  [Terrain.Stone, BLOCK_2X2, 9],
+];
+/** Sixteen compass directions, in 1024ths. */
+const COMPASS: Cells = [
+  [1024, 0],
+  [946, 392],
+  [724, 724],
+  [392, 946],
+  [0, 1024],
+  [-392, 946],
+  [-724, 724],
+  [-946, 392],
+  [-1024, 0],
+  [-946, -392],
+  [-724, -724],
+  [-392, -946],
+  [0, -1024],
+  [392, -946],
+  [724, -724],
+  [946, -392],
+];
 
 function generate(width: number, height: number, seed: number): GameMap {
   if (width < MIN_GENERATED_SIZE || height < MIN_GENERATED_SIZE) {
@@ -244,6 +303,48 @@ function generate(width: number, height: number, seed: number): GameMap {
     }
   }
 
+  // Resources. A cluster goes down only on open grass with open grass all
+  // round it, so there is always somewhere to stand and work it.
+  const openGrass = (tx: number, ty: number): boolean => {
+    if (tx < 1 || ty < 1 || tx >= width - 1 || ty >= height - 1) return false;
+    if (terrain[ty * width + tx] !== Terrain.Grass) return false;
+    for (const [sx, sy] of startTiles) {
+      const dx = tx < sx! ? sx! - tx : tx - sx!;
+      const dy = ty < sy! ? sy! - ty : ty - sy!;
+      if (dx <= TOWN_RESERVE && dy <= TOWN_RESERVE) return false;
+    }
+    return true;
+  };
+  const placeCluster = (
+    cells: Cells,
+    ox: number,
+    oy: number,
+    id: number,
+    alsoNeeds?: (tx: number, ty: number) => boolean,
+  ): boolean => {
+    for (const [cx, cy] of cells) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const tx = ox + cx + dx;
+          const ty = oy + cy + dy;
+          if (!openGrass(tx, ty) || (alsoNeeds !== undefined && !alsoNeeds(tx, ty))) return false;
+        }
+      }
+    }
+    for (const [cx, cy] of cells) setBoth(ox + cx, oy + cy, id);
+    return true;
+  };
+  // Round the first start; the mirror image lands round the second.
+  const [homeX, homeY] = startTiles[0]!;
+  STARTING_RESOURCES.forEach(([id, cells, distance], i) => {
+    const first = hash2(seed ^ 0x6b43a9b5, i, 0) & 15;
+    for (let turn = 0; turn < 16; turn++) {
+      const [ux, uy] = COMPASS[(first + turn) & 15]!;
+      const ox = homeX! + idiv(ux * distance + 512, 1024) - (cells === COPSE ? 0 : 1);
+      const oy = homeY! + idiv(uy * distance + 512, 1024);
+      if (placeCluster(cells, ox, oy, id)) return;
+    }
+  });
   // The straight line between the starts passes through the middle ford. If
   // forest or rock has cut the starts off from each other, open that line.
   const elevation = new Int32Array((width + 1) * (height + 1));
@@ -261,6 +362,35 @@ function generate(width: number, height: number, seed: number): GameMap {
     if (regionOf(map, starts[0]!) !== regionOf(map, starts[1]!)) {
       throw new Error(`map seed ${seed} could not connect the two starts`);
     }
+  }
+
+  // Further out, deposits neither player starts with. They go only where
+  // both players can already walk, not in some clearing sealed off by trees.
+  {
+    const reachable = regionOf(map, starts[0]!);
+    const walkable = (tx: number, ty: number): boolean => map.region[ty * width + tx] === reachable;
+    const neutral = idiv(Math.min(width, height), 40);
+    for (const [id, cells, salt] of [
+      [Terrain.Gold, BLOCK_3X2, 0x3f84d5b5],
+      [Terrain.Stone, BLOCK_2X2, 0x5a827999],
+    ] as const) {
+      let placed = 0;
+      for (let attempt = 0; attempt < 120 && placed < neutral; attempt++) {
+        const ox = hash2(seed ^ salt, attempt, 1) % width;
+        const oy = hash2(seed ^ salt, attempt, 2) % height;
+        const farFromStarts = startTiles.every(([sx, sy]) => {
+          const dx = ox - sx!;
+          const dy = oy - sy!;
+          return dx * dx + dy * dy >= NEUTRAL_DISTANCE * NEUTRAL_DISTANCE;
+        });
+        // Kept off the very middle, where a cluster would run into its own mirror image.
+        const dx = ox * 2 - width;
+        const dy = oy * 2 - height;
+        if (!farFromStarts || dx * dx + dy * dy < 16 * 16) continue;
+        if (placeCluster(cells, ox, oy, id, walkable)) placed++;
+      }
+    }
+    map = new GameMap(width, height, terrain, elevation, starts);
   }
 
   // Ground nobody can walk to is only confusing: a clearing ringed by trees

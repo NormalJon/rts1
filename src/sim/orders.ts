@@ -6,9 +6,10 @@
  */
 
 import type { Command, ScheduledCommand } from './commands';
+import { acceptsDeliveries, assignDelivery, assignGather } from './economy';
+import { ENTITY_TYPES } from './entityTypes';
 import { clamp, fromRatio, HALF, idiv, isqrt, length, mul, mulDiv, ONE, type Fixed } from './fixed';
 import { beginOrder } from './routing';
-import { UNIT_TYPES } from './unitTypes';
 import { entityIndex, MoveState, ORDER_QUEUE_LENGTH, type World } from './world';
 
 /** Limits on what a single command may ask for, whoever sent it. */
@@ -41,15 +42,54 @@ export function applyCommand(world: World, entry: ScheduledCommand): void {
       applyMove(world, player, command);
       break;
     case 'stop':
-      for (const slot of ownedSlots(world, player, command.units)) world.clearOrders(slot);
+      for (const slot of ownedSlots(world, player, command.units)) {
+        world.clearOrders(slot);
+        world.clearJob(slot);
+      }
       break;
+    case 'gather':
+      applyGather(world, player, command);
+      break;
+    case 'deliver':
+      applyDeliver(world, player, command);
+      break;
+  }
+}
+
+function applyGather(world: World, player: number, command: Extract<Command, { kind: 'gather' }>): void {
+  const { map } = world;
+  const tile = command.tile;
+  if (!Number.isInteger(tile) || tile < 0 || tile >= map.tileCount) return;
+  // Units that cannot gather, and everyone if there is nothing there, just walk over.
+  const walkers: number[] = [];
+  for (const slot of ownedSlots(world, player, command.units)) {
+    const gathers = ENTITY_TYPES[world.entityType[slot]!]!.carries > 0;
+    if (!gathers || !assignGather(world, slot, tile)) walkers.push(world.idAt(slot));
+  }
+  if (walkers.length > 0) {
+    applyMove(world, player, { kind: 'move', units: walkers, x: map.centreX(tile), y: map.centreY(tile) });
+  }
+}
+
+function applyDeliver(world: World, player: number, command: Extract<Command, { kind: 'deliver' }>): void {
+  const target = command.target;
+  if (!acceptsDeliveries(world, target, player)) return;
+  const at = entityIndex(target);
+  const walkers: number[] = [];
+  for (const slot of ownedSlots(world, player, command.units)) {
+    if (world.carry[slot]! > 0) assignDelivery(world, slot, target);
+    else walkers.push(world.idAt(slot));
+  }
+  if (walkers.length > 0) {
+    applyMove(world, player, { kind: 'move', units: walkers, x: world.posX[at]!, y: world.posY[at]! });
   }
 }
 
 function applySpawn(world: World, player: number, command: Extract<Command, { kind: 'spawn' }>): void {
   const { map } = world;
   const unitType = command.unitType | 0;
-  if (unitType < 0 || unitType >= UNIT_TYPES.length) return;
+  const type = ENTITY_TYPES[unitType];
+  if (type === undefined || type.building) return;
   const count = clamp(command.count | 0, 0, MAX_SPAWN_PER_COMMAND);
   const centreX = clamp(command.x | 0, 0, map.maxX);
   const centreY = clamp(command.y | 0, 0, map.maxY);
@@ -65,7 +105,7 @@ function applySpawn(world: World, player: number, command: Extract<Command, { ki
       x = map.centreX(tile);
       y = map.centreY(tile);
     }
-    world.spawn(player, unitType, x, y);
+    world.spawnUnit(player, unitType, x, y);
   }
 }
 
@@ -192,6 +232,8 @@ function applyMove(world: World, player: number, command: Extract<Command, { kin
 
 /** Hands a unit a destination, either replacing what it is doing or adding to its queue. */
 function giveOrder(world: World, slot: number, groupId: number, x: Fixed, y: Fixed, queue: boolean): void {
+  // Being sent somewhere takes a villager off its work.
+  world.clearJob(slot);
   const busy = world.moveState[slot] !== MoveState.Idle || world.queueLength[slot]! > 0;
   if (queue && busy) {
     const waiting = world.queueLength[slot]!;
@@ -210,8 +252,8 @@ function giveOrder(world: World, slot: number, groupId: number, x: Fixed, y: Fix
 }
 
 /**
- * The slots of the listed units that are alive and belong to the player, in
- * the order listed, each at most once.
+ * The slots of the listed units that are alive, mobile and belong to the
+ * player, in the order listed, each at most once.
  */
 function ownedSlots(world: World, player: number, units: readonly number[]): number[] {
   const slots: number[] = [];
@@ -222,7 +264,8 @@ function ownedSlots(world: World, player: number, units: readonly number[]): num
     const id = units[i]!;
     if (!world.isAlive(id)) continue;
     const slot = entityIndex(id);
-    if (world.owner[slot] !== player || seen.has(slot)) continue;
+    // Buildings take no orders.
+    if (world.owner[slot] !== player || world.mobile[slot] === 0 || seen.has(slot)) continue;
     seen.add(slot);
     slots.push(slot);
   }

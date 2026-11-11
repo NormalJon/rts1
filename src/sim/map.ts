@@ -5,21 +5,34 @@
  * Positions are in tiles, so the tile containing a fixed-point position is its
  * whole part. A tile is either passable or not; everything about movement
  * (pathfinding, line of sight, collision with terrain) reads that one fact.
+ *
+ * The map changes during a match: trees are felled, deposits are worked out,
+ * buildings go up. Every change goes through the methods here, which keep
+ * passability, the connected regions and the state fingerprint in step.
  */
 
 import { HALF, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
 
 export const Terrain = {
   Grass: 0,
-  /** Trees block movement. Later they are also the wood supply. */
+  /** Trees block movement and are the wood supply. One tree to a tile. */
   Forest: 1,
   /** A ford: water shallow enough to wade. */
   Shallows: 2,
   Water: 3,
+  /** Bare outcrop. Blocks movement and yields nothing. */
   Rock: 4,
+  /** Berry bushes: the first food. */
+  Berries: 5,
+  /** Quarryable stone. */
+  Stone: 6,
+  /** Gold ore. */
+  Gold: 7,
 } as const;
 
-const PASSABLE_BY_TERRAIN = [1, 0, 1, 0, 0];
+const PASSABLE_BY_TERRAIN = [1, 0, 1, 0, 0, 0, 0, 0];
+/** How much a tile of each terrain holds before anyone has gathered from it. */
+const STARTING_AMOUNT = [0, 100, 0, 0, 0, 250, 500, 700];
 
 export interface StartPosition {
   readonly x: Fixed;
@@ -37,7 +50,12 @@ export class GameMap {
   readonly width: number;
   readonly height: number;
   readonly tileCount: number;
+  /** What is on each tile. Changes as resources are used up. */
   readonly terrain: Uint8Array;
+  /** How much of its resource each tile still holds. */
+  readonly amount: Int32Array;
+  /** 1 where a building stands. */
+  readonly blocked: Uint8Array;
   /** Height at each tile corner, (width + 1) by (height + 1), in tiles. */
   readonly elevation: Int32Array;
   readonly passable: Uint8Array;
@@ -48,8 +66,13 @@ export class GameMap {
    */
   readonly region: Int32Array;
   readonly starts: readonly StartPosition[];
-  /** Fingerprint of the terrain, mixed into the world checksum. */
+  /** Fingerprint of everything about the map that never changes. */
   readonly checksum: number;
+  /** Fingerprint of everything that does: terrain, amounts and buildings. Kept up to date change by change. */
+  stateHash = 0;
+  /** Goes up whenever a tile opens or closes, so anything planned on the old layout can tell. */
+  passVersion = 0;
+  private regionCount = 0;
   /** The largest valid coordinate on each axis. */
   readonly maxX: Fixed;
   readonly maxY: Fixed;
@@ -73,13 +96,94 @@ export class GameMap {
     this.starts = starts;
     this.maxX = width * ONE - 1;
     this.maxY = height * ONE - 1;
+    this.amount = new Int32Array(this.tileCount);
+    this.blocked = new Uint8Array(this.tileCount);
     this.passable = new Uint8Array(this.tileCount);
-    for (let i = 0; i < this.tileCount; i++) {
-      this.passable[i] = PASSABLE_BY_TERRAIN[terrain[i]!] ?? 0;
-    }
     this.region = new Int32Array(this.tileCount);
-    this.labelRegions();
+    for (let i = 0; i < this.tileCount; i++) this.amount[i] = STARTING_AMOUNT[terrain[i]!] ?? 0;
+    this.rebuild();
     this.checksum = this.computeChecksum();
+  }
+
+  // ---- Changes ---------------------------------------------------------------
+
+  /** Recomputes everything derived from terrain, amounts and buildings. */
+  private rebuild(): void {
+    let hash = 0;
+    for (let i = 0; i < this.tileCount; i++) {
+      this.passable[i] = this.blocked[i] === 0 ? (PASSABLE_BY_TERRAIN[this.terrain[i]!] ?? 0) : 0;
+      hash = (hash + this.tileHash(i)) | 0;
+    }
+    this.stateHash = hash;
+    this.passVersion++;
+    this.labelRegions();
+  }
+
+  private tileHash(tile: number): number {
+    let h =
+      Math.imul(tile + 1, 0x9e3779b1) ^
+      Math.imul(this.terrain[tile]! + 1, 0x85ebca6b) ^
+      Math.imul(this.amount[tile]! + 1, 0xc2b2ae35) ^
+      Math.imul(this.blocked[tile]! + 1, 0x27d4eb2f);
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+    return h ^ (h >>> 13);
+  }
+
+  /**
+   * Takes one unit of resource from a tile. When the last is taken the tile
+   * becomes open grass. Returns whether that happened.
+   */
+  harvest(tile: number): boolean {
+    if (this.amount[tile]! <= 0) return false;
+    this.stateHash = (this.stateHash - this.tileHash(tile)) | 0;
+    this.amount[tile] = this.amount[tile]! - 1;
+    const exhausted = this.amount[tile] === 0;
+    if (exhausted) this.terrain[tile] = Terrain.Grass;
+    this.stateHash = (this.stateHash + this.tileHash(tile)) | 0;
+    if (exhausted) this.open(tile);
+    return exhausted;
+  }
+
+  /** Marks a square of tiles as built on, or clears it again. */
+  setBuilding(left: number, top: number, size: number, present: boolean): void {
+    for (let ty = top; ty < top + size; ty++) {
+      for (let tx = left; tx < left + size; tx++) {
+        if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) continue;
+        this.blocked[ty * this.width + tx] = present ? 1 : 0;
+      }
+    }
+    this.rebuild();
+  }
+
+  /** Replaces the changeable state wholesale, as when loading a saved game. */
+  restoreState(terrain: ArrayLike<number>, amount: ArrayLike<number>): void {
+    if (terrain.length !== this.tileCount || amount.length !== this.tileCount) {
+      throw new Error('saved terrain does not match the map');
+    }
+    this.terrain.set(terrain);
+    this.amount.set(amount);
+    this.rebuild();
+  }
+
+  /** A tile has just become passable: fit it into the regions around it. */
+  private open(tile: number): void {
+    if (this.passable[tile] === 1 || this.blocked[tile] === 1) return;
+    this.passable[tile] = 1;
+    this.passVersion++;
+    const tx = tile % this.width;
+    const ty = idiv(tile, this.width);
+    let joined = 0;
+    for (let dir = 0; dir < 8; dir++) {
+      if (!this.canStep(tx, ty, dir)) continue;
+      const other = this.region[(ty + DIR_Y[dir]!) * this.width + tx + DIR_X[dir]!]!;
+      if (joined === 0) joined = other;
+      else if (other !== joined) {
+        // It bridges two areas that were separate. Start again from scratch.
+        this.labelRegions();
+        return;
+      }
+    }
+    this.region[tile] = joined !== 0 ? joined : ++this.regionCount;
   }
 
   index(tx: number, ty: number): number {
@@ -205,6 +309,41 @@ export class GameMap {
    * in that region. Returns -1 if none lies within maxRadius tiles.
    */
   nearestPassable(tx: number, ty: number, region = 0, maxRadius = 64): number {
+    return this.nearestTile(
+      tx,
+      ty,
+      maxRadius,
+      (tile) => this.passable[tile] === 1 && (region === 0 || this.region[tile] === region),
+    );
+  }
+
+  /**
+   * The nearest tile of a terrain that still holds something and can be
+   * worked: it has a neighbouring tile to stand on, in the given region.
+   */
+  nearestResource(tx: number, ty: number, terrain: number, region: number, maxRadius: number): number {
+    return this.nearestTile(
+      tx,
+      ty,
+      maxRadius,
+      (tile) => this.terrain[tile] === terrain && this.amount[tile]! > 0 && this.canBeWorkedFrom(tile, region),
+    );
+  }
+
+  /** Whether any of a tile's eight neighbours is open ground in the region. */
+  canBeWorkedFrom(tile: number, region: number): boolean {
+    const tx = tile % this.width;
+    const ty = idiv(tile, this.width);
+    for (let dir = 0; dir < 8; dir++) {
+      const nx = tx + DIR_X[dir]!;
+      const ny = ty + DIR_Y[dir]!;
+      if (this.isPassable(nx, ny) && this.region[ny * this.width + nx] === region) return true;
+    }
+    return false;
+  }
+
+  /** The tile closest to (tx, ty) that passes a test, or -1 if none lies within maxRadius tiles. */
+  nearestTile(tx: number, ty: number, maxRadius: number, wanted: (tile: number) => boolean): number {
     let best = -1;
     let bestDistSq = 0;
     let stopAt = maxRadius;
@@ -221,8 +360,7 @@ export class GameMap {
         for (let x = x0; x <= x1; x += stride) {
           if (x < 0 || x >= this.width) continue;
           const i = y * this.width + x;
-          if (this.passable[i] === 0) continue;
-          if (region !== 0 && this.region[i] !== region) continue;
+          if (!wanted(i)) continue;
           const distSq = (x - tx) * (x - tx) + (y - ty) * (y - ty);
           if (best === -1 || distSq < bestDistSq) {
             best = i;
@@ -241,6 +379,7 @@ export class GameMap {
   }
 
   private labelRegions(): void {
+    this.region.fill(0);
     const stack: number[] = [];
     let next = 0;
     for (let seed = 0; seed < this.tileCount; seed++) {
@@ -261,6 +400,7 @@ export class GameMap {
         }
       }
     }
+    this.regionCount = next;
   }
 
   private computeChecksum(): number {
@@ -269,7 +409,6 @@ export class GameMap {
       h = Math.imul(h ^ value, 0x01000193);
       h = (h << 13) | (h >>> 19);
     };
-    for (let i = 0; i < this.terrain.length; i++) mix(this.terrain[i]!);
     for (let i = 0; i < this.elevation.length; i++) mix(this.elevation[i]!);
     for (const start of this.starts) {
       mix(start.x);

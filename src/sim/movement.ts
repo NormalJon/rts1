@@ -51,9 +51,10 @@ export function movementSystem(world: World): void {
   const nextX = world.scratchX;
   const nextY = world.scratchY;
 
-  // Pass 1: intent.
+  // Pass 1: intent. Buildings take no part in any of this.
+  const { mobile } = world;
   for (let slot = 0; slot < count; slot++) {
-    if (alive[slot] === 0) continue;
+    if (alive[slot] === 0 || mobile[slot] === 0) continue;
     nextX[slot] = posX[slot]!;
     nextY[slot] = posY[slot]!;
     const state = moveState[slot]!;
@@ -75,7 +76,7 @@ export function movementSystem(world: World): void {
   const pushY = world.scratchPushY;
   const flags = world.scratchFlags;
   for (let slot = 0; slot < count; slot++) {
-    if (alive[slot] === 0) continue;
+    if (alive[slot] === 0 || mobile[slot] === 0) continue;
     const fromX = posX[slot]!;
     const fromY = posY[slot]!;
     settleOnGround(world, slot, nextX[slot]! + pushX[slot]!, nextY[slot]! + pushY[slot]!);
@@ -137,30 +138,26 @@ export function movementSystem(world: World): void {
 
 /** Sorts units into grid cells so each can find its neighbours quickly. */
 function buildNeighbourGrid(world: World): void {
-  const { alive, posX, posY, cellStart, cellItems } = world;
+  const { alive, mobile, posX, posY, cellStart, cellItems } = world;
   const columns = (world.map.width + 1) >> 1;
   cellStart.fill(0);
+  let units = 0;
   for (let slot = 0; slot < world.highWater; slot++) {
-    if (alive[slot] === 0) continue;
+    if (alive[slot] === 0 || mobile[slot] === 0) continue;
+    units++;
     cellStart[(posY[slot]! >> CELL_SHIFT) * columns + (posX[slot]! >> CELL_SHIFT) + 1]!++;
   }
   for (let cell = 1; cell < cellStart.length; cell++) cellStart[cell] = cellStart[cell]! + cellStart[cell - 1]!;
   // Filling from the highest slot down leaves each cell in ascending slot order.
   for (let slot = world.highWater - 1; slot >= 0; slot--) {
-    if (alive[slot] === 0) continue;
+    if (alive[slot] === 0 || mobile[slot] === 0) continue;
     const cell = (posY[slot]! >> CELL_SHIFT) * columns + (posX[slot]! >> CELL_SHIFT);
     cellItems[cellStart[cell + 1]! - 1] = slot;
     cellStart[cell + 1] = cellStart[cell + 1]! - 1;
   }
   // The fill shifted every boundary down by one cell; shift them back.
   for (let cell = 0; cell < cellStart.length - 1; cell++) cellStart[cell] = cellStart[cell + 1]!;
-  cellStart[cellStart.length - 1] = countAlive(world);
-}
-
-function countAlive(world: World): number {
-  let n = 0;
-  for (let slot = 0; slot < world.highWater; slot++) n += world.alive[slot]!;
-  return n;
+  cellStart[cellStart.length - 1] = units;
 }
 
 /** Updates where a moving unit is heading. */
@@ -276,7 +273,7 @@ function separate(world: World): void {
   const rows = (world.map.height + 1) >> 1;
 
   for (let slot = 0; slot < world.highWater; slot++) {
-    if (alive[slot] === 0) continue;
+    if (alive[slot] === 0 || world.mobile[slot] === 0) continue;
     const x = nextX[slot]!;
     const y = nextY[slot]!;
     const r = radius[slot]!;

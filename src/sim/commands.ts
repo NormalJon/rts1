@@ -20,7 +20,7 @@ export type Command =
       readonly x: Fixed;
       readonly y: Fixed;
       readonly count: number;
-      /** Index into UNIT_TYPES. */
+      /** Index into ENTITY_TYPES. */
       readonly unitType: number;
     }
   | {
@@ -34,6 +34,19 @@ export type Command =
   | {
       readonly kind: 'stop';
       readonly units: readonly EntityId[];
+    }
+  | {
+      /** Work a resource tile: gather from it, carry the load to a drop-off, and repeat. */
+      readonly kind: 'gather';
+      readonly units: readonly EntityId[];
+      /** The tile's index: row * map width + column. */
+      readonly tile: number;
+    }
+  | {
+      /** Hand in whatever is being carried at a drop-off building. */
+      readonly kind: 'deliver';
+      readonly units: readonly EntityId[];
+      readonly target: EntityId;
     };
 
 export interface ScheduledCommand {

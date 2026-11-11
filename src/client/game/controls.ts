@@ -6,7 +6,7 @@
  */
 
 import { fromFloat } from '../../sim/units';
-import { UNIT_TYPES } from '../../sim/unitTypes';
+import { ENTITY_TYPES } from '../../sim/entityTypes';
 import { entityIndex, type EntityId } from '../../sim/world';
 import type { LocalSession } from '../../session/localSession';
 import type { GameView } from './view';
@@ -177,12 +177,12 @@ export class Controls {
     this.lastClick = { time: now, unit: best.id };
     if (double) {
       // Everyone of that kind in view.
-      const kind = world.unitType[best.slot];
+      const kind = world.entityType[best.slot];
       if (!add) this.selected.clear();
       const frame = this.canvas.getBoundingClientRect();
       for (const unit of this.ownUnitsOnScreen()) {
         const inView = unit.x >= frame.left && unit.x <= frame.right && unit.y >= frame.top && unit.y <= frame.bottom;
-        if (inView && world.unitType[unit.slot] === kind) this.selected.add(unit.id);
+        if (inView && world.entityType[unit.slot] === kind) this.selected.add(unit.id);
       }
       return;
     }
@@ -328,13 +328,13 @@ export class Controls {
     const { world } = this.session;
     const counts = new Map<number, number>();
     for (const id of this.selected) {
-      const kind = world.unitType[entityIndex(id)]!;
+      const kind = world.entityType[entityIndex(id)]!;
       counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
     const parts = [...counts.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([kind, n]) => {
-        const name = UNIT_TYPES[kind]?.name ?? 'unit';
+        const name = ENTITY_TYPES[kind]?.name ?? 'unit';
         return `${n} ${n === 1 ? name : (PLURALS[name] ?? `${name}s`)}`;
       });
     this.hud.selection.textContent = parts.length > 0 ? parts.join(' · ') : 'Nothing selected';

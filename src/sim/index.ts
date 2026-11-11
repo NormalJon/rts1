@@ -1,4 +1,6 @@
 export * from './commands';
+export * from './economy';
+export * from './entityTypes';
 export * from './fixed';
 export * from './hash';
 export * from './map';
@@ -8,5 +10,4 @@ export * from './rng';
 export * from './sim';
 export * from './snapshot';
 export * from './units';
-export * from './unitTypes';
 export * from './world';

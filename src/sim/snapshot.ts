@@ -5,11 +5,13 @@
  * file, and the same thing lets a player who dropped out of a multiplayer
  * match rejoin: load the snapshot, then run the commands issued since.
  *
- * The map itself is not saved. It is rebuilt from the match settings, which
- * always produce the same map.
+ * The lie of the land is not saved; it is rebuilt from the match settings,
+ * which always produce the same map. What has changed on it since (felled
+ * trees, worked-out deposits) is saved.
  */
 
 import type { ScheduledCommand } from './commands';
+import { ENTITY_TYPES } from './entityTypes';
 import type { RngState } from './rng';
 import { checksumBytes, restoreSearch } from './routing';
 import { World, type RouteRequest, type SimConfig } from './world';
@@ -39,12 +41,17 @@ interface SavedSearch {
 }
 
 export interface WorldSnapshot {
-  readonly version: 2;
+  readonly version: 3;
   readonly config: SimConfig;
   readonly tick: number;
   readonly rng: RngState;
   readonly highWater: number;
   readonly freeSlots: readonly number[];
+  /** What is on each tile now, and how much of its resource is left. */
+  readonly terrain: readonly number[];
+  readonly amount: readonly number[];
+  /** Each player's stockpile. */
+  readonly stock: readonly number[];
   /** Each entity property by name, holding slots 0 to highWater - 1. */
   readonly columns: Readonly<Record<string, readonly number[]>>;
   /** Waypoint lists by slot, for units following their own path. */
@@ -69,12 +76,15 @@ export function takeSnapshot(world: World): WorldSnapshot {
   }
   const active = world.activeSearch;
   return {
-    version: 2,
+    version: 3,
     config: { ...world.config },
     tick: world.tick,
     rng: world.rng.getState(),
     highWater: world.highWater,
     freeSlots: [...world.freeSlots],
+    terrain: Array.from(world.map.terrain),
+    amount: Array.from(world.map.amount),
+    stock: Array.from(world.stock),
     columns,
     paths,
     nextGroupId: world.nextGroupId,
@@ -103,10 +113,10 @@ export function takeSnapshot(world: World): WorldSnapshot {
 }
 
 export function restoreSnapshot(snapshot: WorldSnapshot): World {
-  if (snapshot.version !== 2) {
+  if (snapshot.version !== 3) {
     throw new Error(`unsupported snapshot version ${String(snapshot.version)}`);
   }
-  const world = new World(snapshot.config);
+  const world = new World(snapshot.config, true);
   if (snapshot.highWater > world.config.maxEntities) {
     throw new Error('snapshot holds more entities than its config allows');
   }
@@ -126,6 +136,15 @@ export function restoreSnapshot(snapshot: WorldSnapshot): World {
     const path = snapshot.paths[slot];
     world.paths[slot] = path === null || path === undefined ? undefined : Int32Array.from(path);
   }
+  // The ground as it now is, then the buildings standing on it.
+  world.map.restoreState(snapshot.terrain, snapshot.amount);
+  for (let slot = 0; slot < world.highWater; slot++) {
+    if (world.alive[slot] === 0 || world.mobile[slot] === 1) continue;
+    const footprint = ENTITY_TYPES[world.entityType[slot]!]!.footprint;
+    const half = footprint >> 1;
+    world.map.setBuilding((world.posX[slot]! >> 16) - half, (world.posY[slot]! >> 16) - half, footprint, true);
+  }
+  world.stock.set(snapshot.stock);
   world.nextGroupId = snapshot.nextGroupId;
   for (const saved of [...snapshot.groups].sort((a, b) => a.id - b.id)) {
     const field = saved.field === null ? null : Uint8Array.from(saved.field);

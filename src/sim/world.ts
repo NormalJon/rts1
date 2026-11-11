@@ -8,13 +8,13 @@
  */
 
 import { CommandQueue } from './commands';
-import { ONE, type Fixed } from './fixed';
+import { HALF, ONE, type Fixed } from './fixed';
 import type { GameMap } from './map';
 import { buildMap, type MapSpec } from './mapgen';
 import { Rng } from './rng';
 import { SearchScratch, type Search } from './search';
+import { ENTITY_TYPES, Kind, RESOURCE_COUNT } from './entityTypes';
 import { perSecondToPerTick } from './units';
-import { UNIT_TYPES } from './unitTypes';
 
 export interface SimConfig {
   /** Simulation steps per second. Fixed for the whole match. */
@@ -25,6 +25,11 @@ export interface SimConfig {
   readonly mapWidth: number;
   readonly mapHeight: number;
   readonly map: MapSpec;
+  /**
+   * What each player begins with. 'standard' is a town centre on their start
+   * with a handful of villagers; 'empty' is nothing, for tests and debug pages.
+   */
+  readonly start: 'empty' | 'standard';
   readonly maxEntities: number;
   /**
    * How many tiles pathfinding may examine per tick. Searches that need more
@@ -43,6 +48,7 @@ export function defaultConfig(overrides: Partial<SimConfig> = {}): SimConfig {
     mapWidth: 64,
     mapHeight: 64,
     map: { kind: 'flat' },
+    start: 'empty',
     maxEntities: 8192,
     pathBudget: 30000,
     ...overrides,
@@ -84,6 +90,19 @@ export const MoveState = {
   Direct: 4,
 } as const;
 
+/** Where a gatherer is in its round trip. */
+export const Job = {
+  None: 0,
+  /** Walking to its place beside the resource. */
+  ToResource: 1,
+  Harvesting: 2,
+  /** Carrying a load to a drop-off building. */
+  ToDropOff: 3,
+} as const;
+
+export const STARTING_VILLAGERS = 6;
+const STARTING_STOCK = [200, 200, 0, 100]; // food, wood, stone, gold
+
 /** Orders a unit can have waiting behind its current one. */
 export const ORDER_QUEUE_LENGTH = 8;
 
@@ -113,6 +132,8 @@ export type RouteRequest =
 /** A route search that is part-way through, with what is needed to redo it. */
 export interface ActiveSearch {
   readonly request: RouteRequest;
+  /** The map's passVersion when the search began. If the map has changed since, the search starts over. */
+  readonly mapVersion: number;
   readonly start: number;
   readonly goal: number;
   readonly targets: readonly number[];
@@ -146,7 +167,9 @@ export class World {
   readonly alive: Uint8Array;
   readonly generation: Uint16Array;
   readonly owner: Uint8Array;
-  readonly unitType: Uint8Array;
+  readonly entityType: Uint8Array;
+  /** 1 for units, 0 for buildings, which never move. */
+  readonly mobile: Uint8Array;
   readonly posX: Int32Array;
   readonly posY: Int32Array;
   /** Facing, as a unit vector. */
@@ -180,6 +203,25 @@ export class World {
   readonly queueX: Int32Array;
   readonly queueY: Int32Array;
 
+  /** Gathering: the stage of the round trip, and the resource tile being worked. */
+  readonly job: Uint8Array;
+  readonly jobTile: Int32Array;
+  /** The terrain being gathered, kept so another tile of it can be found when this one runs out. */
+  readonly jobTerrain: Uint8Array;
+  /** Where it stands to work: a neighbouring tile and which half of it, as tile * 2 + side. */
+  readonly jobSpot: Int32Array;
+  /** Ticks of work done toward the next unit gathered. */
+  readonly jobTimer: Int32Array;
+  readonly jobTries: Uint8Array;
+  /** The drop-off building it is heading for. */
+  readonly jobTarget: Int32Array;
+  /** What it is carrying and how much. */
+  readonly carryKind: Uint8Array;
+  readonly carry: Int32Array;
+
+  /** Each player's stockpile: playerCount x 4, as food, wood, stone, gold. */
+  readonly stock: Int32Array;
+
   /** Waypoints (x, y pairs) for units following their own path. */
   readonly paths: (Int32Array | undefined)[] = [];
   readonly groups = new Map<number, MoveGroup>();
@@ -198,7 +240,11 @@ export class World {
   readonly cellStart: Int32Array;
   readonly cellItems: Int32Array;
 
-  constructor(config: SimConfig) {
+  /**
+   * @param restoring  True when a saved game is about to be loaded into this
+   *   world, so the starting kit must not be placed a second time.
+   */
+  constructor(config: SimConfig, restoring = false) {
     if (!Number.isInteger(config.tickRate) || config.tickRate < 1 || config.tickRate > 120) {
       throw new RangeError(`tickRate must be a whole number from 1 to 120, got ${config.tickRate}`);
     }
@@ -222,7 +268,8 @@ export class World {
     this.alive = this.column('alive', new Uint8Array(n));
     this.generation = this.column('generation', new Uint16Array(n));
     this.owner = this.column('owner', new Uint8Array(n));
-    this.unitType = this.column('unitType', new Uint8Array(n));
+    this.entityType = this.column('entityType', new Uint8Array(n));
+    this.mobile = this.column('mobile', new Uint8Array(n));
     this.posX = this.column('posX', new Int32Array(n));
     this.posY = this.column('posY', new Int32Array(n));
     this.dirX = this.column('dirX', new Int32Array(n));
@@ -245,6 +292,16 @@ export class World {
     this.queueGroup = this.column('queueGroup', new Int32Array(n * q), q);
     this.queueX = this.column('queueX', new Int32Array(n * q), q);
     this.queueY = this.column('queueY', new Int32Array(n * q), q);
+    this.job = this.column('job', new Uint8Array(n));
+    this.jobTile = this.column('jobTile', new Int32Array(n));
+    this.jobTerrain = this.column('jobTerrain', new Uint8Array(n));
+    this.jobSpot = this.column('jobSpot', new Int32Array(n));
+    this.jobTimer = this.column('jobTimer', new Int32Array(n));
+    this.jobTries = this.column('jobTries', new Uint8Array(n));
+    this.jobTarget = this.column('jobTarget', new Int32Array(n));
+    this.carryKind = this.column('carryKind', new Uint8Array(n));
+    this.carry = this.column('carry', new Int32Array(n));
+    this.stock = new Int32Array(config.playerCount * RESOURCE_COUNT);
 
     this.searchScratch = new SearchScratch(this.map.tileCount);
     this.scratchX = new Int32Array(n);
@@ -256,6 +313,31 @@ export class World {
     const cells = ((this.map.width + 1) >> 1) * ((this.map.height + 1) >> 1);
     this.cellStart = new Int32Array(cells + 1);
     this.cellItems = new Int32Array(n);
+
+    if (config.start === 'standard' && !restoring) this.placeStartingKit();
+  }
+
+  /** A town centre on each player's start, villagers round it, and something in the stores. */
+  private placeStartingKit(): void {
+    const { map } = this;
+    const reach = (ENTITY_TYPES[Kind.TownCentre]!.footprint >> 1) + 1;
+    for (let player = 0; player < this.config.playerCount; player++) {
+      const start = map.starts[player];
+      if (start === undefined) break;
+      const tx = start.x >> 16;
+      const ty = start.y >> 16;
+      this.spawnBuilding(player, Kind.TownCentre, tx, ty);
+      this.stock.set(STARTING_STOCK, player * RESOURCE_COUNT);
+      // Villagers line up along the side of the hall that faces the middle of the map.
+      const towardCentreX = tx * 2 < map.width ? 1 : -1;
+      const towardCentreY = ty * 2 < map.height ? 1 : -1;
+      for (let i = 0; i < STARTING_VILLAGERS; i++) {
+        const along = i - (STARTING_VILLAGERS >> 1);
+        const vx = tx + towardCentreX * reach;
+        const vy = ty + towardCentreY * along;
+        if (map.isPassable(vx, vy)) this.spawnUnit(player, Kind.Villager, vx * ONE + HALF, vy * ONE + HALF);
+      }
+    }
   }
 
   private column<T extends Column>(name: string, data: T, stride = 1): T {
@@ -268,16 +350,11 @@ export class World {
     return this.columnList;
   }
 
-  /**
-   * Creates a unit and returns its handle, or NO_ENTITY if the world is full.
-   * The position must be on passable ground.
-   */
-  spawn(owner: number, unitType: number, x: Fixed, y: Fixed): EntityId {
-    const type = UNIT_TYPES[unitType];
-    if (type === undefined) throw new RangeError(`no such unit type: ${unitType}`);
+  /** Takes a free slot and wipes it, or returns -1 if the world is full. */
+  private claimSlot(): number {
     let slot = this.freeSlots.pop();
     if (slot === undefined) {
-      if (this.highWater >= this.config.maxEntities) return NO_ENTITY;
+      if (this.highWater >= this.config.maxEntities) return -1;
       slot = this.highWater++;
     }
     const generation = this.generation[slot]!;
@@ -286,8 +363,23 @@ export class World {
     this.paths[slot] = undefined;
     this.generation[slot] = generation;
     this.alive[slot] = 1;
+    this.jobTile[slot] = -1;
+    this.jobTarget[slot] = NO_ENTITY;
+    return slot;
+  }
+
+  /**
+   * Creates a unit and returns its handle, or NO_ENTITY if the world is full.
+   * The position must be on passable ground.
+   */
+  spawnUnit(owner: number, entityType: number, x: Fixed, y: Fixed): EntityId {
+    const type = ENTITY_TYPES[entityType];
+    if (type === undefined || type.building) throw new RangeError(`not a unit type: ${entityType}`);
+    const slot = this.claimSlot();
+    if (slot === -1) return NO_ENTITY;
     this.owner[slot] = owner;
-    this.unitType[slot] = unitType;
+    this.entityType[slot] = entityType;
+    this.mobile[slot] = 1;
     this.posX[slot] = x;
     this.posY[slot] = y;
     this.goalX[slot] = x;
@@ -301,10 +393,41 @@ export class World {
     return this.idAt(slot);
   }
 
+  /**
+   * Puts up a building centred on a tile and returns its handle, or NO_ENTITY
+   * if the world is full. The ground it covers stops being passable.
+   */
+  spawnBuilding(owner: number, entityType: number, tileX: number, tileY: number): EntityId {
+    const type = ENTITY_TYPES[entityType];
+    if (type === undefined || !type.building) throw new RangeError(`not a building type: ${entityType}`);
+    const slot = this.claimSlot();
+    if (slot === -1) return NO_ENTITY;
+    this.owner[slot] = owner;
+    this.entityType[slot] = entityType;
+    this.posX[slot] = tileX * ONE + HALF;
+    this.posY[slot] = tileY * ONE + HALF;
+    this.goalX[slot] = this.posX[slot]!;
+    this.goalY[slot] = this.posY[slot]!;
+    this.dirY[slot] = ONE;
+    const half = type.footprint >> 1;
+    this.map.setBuilding(tileX - half, tileY - half, type.footprint, true);
+    return this.idAt(slot);
+  }
+
   destroy(id: EntityId): void {
     if (!this.isAlive(id)) return;
     const slot = entityIndex(id);
     this.clearOrders(slot);
+    const type = ENTITY_TYPES[this.entityType[slot]!]!;
+    if (type.building) {
+      const half = type.footprint >> 1;
+      this.map.setBuilding(
+        (this.posX[slot]! >> 16) - half,
+        (this.posY[slot]! >> 16) - half,
+        type.footprint,
+        false,
+      );
+    }
     this.alive[slot] = 0;
     this.generation[slot] = (this.generation[slot]! + 1) & GENERATION_MASK;
     this.freeSlots.push(slot);
@@ -332,6 +455,17 @@ export class World {
     const out: EntityId[] = [];
     for (let slot = 0; slot < this.highWater; slot++) {
       if (this.alive[slot] === 0) continue;
+      if (owner !== undefined && this.owner[slot] !== owner) continue;
+      out.push(this.idAt(slot));
+    }
+    return out;
+  }
+
+  /** Handles of living units (not buildings), optionally one player's, in slot order. */
+  livingUnits(owner?: number): EntityId[] {
+    const out: EntityId[] = [];
+    for (let slot = 0; slot < this.highWater; slot++) {
+      if (this.alive[slot] === 0 || this.mobile[slot] === 0) continue;
       if (owner !== undefined && this.owner[slot] !== owner) continue;
       out.push(this.idAt(slot));
     }
@@ -384,5 +518,15 @@ export class World {
     this.moveState[slot] = MoveState.Idle;
     this.goalX[slot] = this.posX[slot]!;
     this.goalY[slot] = this.posY[slot]!;
+  }
+
+  /** Takes a gatherer off its round trip. It keeps whatever it is carrying. */
+  clearJob(slot: number): void {
+    this.job[slot] = Job.None;
+    this.jobTile[slot] = -1;
+    this.jobSpot[slot] = 0;
+    this.jobTimer[slot] = 0;
+    this.jobTries[slot] = 0;
+    this.jobTarget[slot] = NO_ENTITY;
   }
 }

@@ -4,7 +4,7 @@ import { length, toFloat } from '../src/sim/fixed';
 import { AStarSearch, SearchScratch } from '../src/sim/search';
 import { step } from '../src/sim/sim';
 import { fromFloat } from '../src/sim/units';
-import { UnitKind } from '../src/sim/unitTypes';
+import { Kind } from '../src/sim/entityTypes';
 import { defaultConfig, entityIndex, MoveState, World, type SimConfig } from '../src/sim/world';
 import { brokenInvariant, smallestGap } from './helpers';
 
@@ -43,8 +43,8 @@ function run(world: World, ticks: number, done?: () => boolean): number {
   return ticks;
 }
 
-const place = (world: World, player: number, x: number, y: number, kind: number = UnitKind.Spearman): number =>
-  world.spawn(player, kind, fromFloat(x), fromFloat(y));
+const place = (world: World, player: number, x: number, y: number, kind: number = Kind.Spearman): number =>
+  world.spawnUnit(player, kind, fromFloat(x), fromFloat(y));
 
 const xOf = (world: World, id: number): number => toFloat(world.posX[entityIndex(id)]!);
 const yOf = (world: World, id: number): number => toFloat(world.posY[entityIndex(id)]!);

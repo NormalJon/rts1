@@ -4,13 +4,13 @@ import { hashHex, hashWorld } from '../src/sim/hash';
 import { runReplay, type Replay } from '../src/sim/replay';
 import { step } from '../src/sim/sim';
 import { restoreSnapshot, takeSnapshot, type WorldSnapshot } from '../src/sim/snapshot';
-import { UnitKind } from '../src/sim/unitTypes';
+import { Kind } from '../src/sim/entityTypes';
 import { defaultConfig, World } from '../src/sim/world';
 import { Rng } from '../src/sim/rng';
 import { brokenInvariant, playRandomMatch } from './helpers';
 
-const TICKS = 900; // 30 seconds of play at 30 ticks per second
-const config = defaultConfig({ seed: 20261111, playerCount: 2, map: { kind: 'generated' } });
+const TICKS = 1500; // 50 seconds of play at 30 ticks per second
+const config = defaultConfig({ seed: 20261111, playerCount: 2, map: { kind: 'generated' }, start: 'standard' });
 // The same match with pathfinding starved, so searches run across many ticks.
 const starved = { ...config, pathBudget: 150 };
 
@@ -27,7 +27,12 @@ describe('determinism', () => {
     expect(new Set(hashes).size).toBeGreaterThan(TICKS - 30);
     expect(replay.commands.length).toBeGreaterThan(100);
     expect(replay.commands.some((c) => c.command.kind === 'move' && c.command.queue === true)).toBe(true);
+    expect(replay.commands.some((c) => c.command.kind === 'gather')).toBe(true);
     expect(session.world.livingEntities().length).toBeGreaterThan(40);
+    // Villagers have been at work: both players have handed something in.
+    const { stock } = session.world;
+    expect(stock[0]! + stock[1]! + stock[2]! + stock[3]!).toBeGreaterThan(520);
+    expect(stock[4]! + stock[5]! + stock[6]! + stock[7]!).toBeGreaterThan(520);
   });
 
   it('never leaves a unit in an obstacle or a group miscounted', () => {
@@ -90,7 +95,7 @@ describe('determinism', () => {
 
   it('continues identically from a saved game taken mid-match', () => {
     const { session, hashes } = playRandomMatch(config, 77, TICKS);
-    for (const saveAt of [1, 250, 613]) continuesFrom(session.replay(), hashes, saveAt);
+    for (const saveAt of [1, 250, 613, 1180]) continuesFrom(session.replay(), hashes, saveAt);
   });
 
   it('continues identically from a save taken in the middle of a route search', () => {
@@ -131,7 +136,7 @@ describe('determinism', () => {
     // deliberate, update the value here and in scripts/browser-check.mjs; old
     // replays will no longer play back.
     const { hashes } = playRandomMatch(config, 77, TICKS);
-    expect(hashHex(hashes[TICKS - 1]!)).toBe('d226340e');
+    expect(hashHex(hashes[TICKS - 1]!)).toBe('776c34a8');
   });
 });
 
@@ -140,12 +145,12 @@ describe('world bookkeeping', () => {
 
   it('reuses slots safely and invalidates stale handles', () => {
     const world = new World(defaultConfig());
-    const a = world.spawn(0, UnitKind.Spearman, at(3), at(3));
-    const b = world.spawn(0, UnitKind.Spearman, at(6), at(3));
+    const a = world.spawnUnit(0, Kind.Spearman, at(3), at(3));
+    const b = world.spawnUnit(0, Kind.Spearman, at(6), at(3));
     world.destroy(a);
     expect(world.isAlive(a)).toBe(false);
     expect(world.isAlive(b)).toBe(true);
-    const c = world.spawn(1, UnitKind.Villager, at(5), at(5));
+    const c = world.spawnUnit(1, Kind.Villager, at(5), at(5));
     expect(c).not.toBe(a);
     expect(world.isAlive(c)).toBe(true);
     expect(world.isAlive(a)).toBe(false);
@@ -155,21 +160,21 @@ describe('world bookkeeping', () => {
 
   it('saves and restores free slots and generations', () => {
     const world = new World(defaultConfig());
-    const ids = Array.from({ length: 10 }, (_, i) => world.spawn(i % 2, i % 2, at(2 + i * 3), at(4)));
+    const ids = Array.from({ length: 10 }, (_, i) => world.spawnUnit(i % 2, i % 2, at(2 + i * 3), at(4)));
     world.destroy(ids[3]!);
     world.destroy(ids[7]!);
     const restored = restoreSnapshot(JSON.parse(JSON.stringify(takeSnapshot(world))));
     expect(hashWorld(restored)).toBe(hashWorld(world));
     // Both worlds must hand out the same handle next.
-    expect(restored.spawn(0, 0, at(9), at(9))).toBe(world.spawn(0, 0, at(9), at(9)));
+    expect(restored.spawnUnit(0, 0, at(9), at(9))).toBe(world.spawnUnit(0, 0, at(9), at(9)));
     expect(restored.isAlive(ids[3]!)).toBe(false);
     expect(hashWorld(restored)).toBe(hashWorld(world));
   });
 
   it('releases a dead unit\'s claim on its group', () => {
     const world = new World(defaultConfig());
-    const a = world.spawn(0, 0, at(10), at(10));
-    const b = world.spawn(0, 0, at(11), at(10));
+    const a = world.spawnUnit(0, 0, at(10), at(10));
+    const b = world.spawnUnit(0, 0, at(11), at(10));
     world.commands.schedule(
       { tick: 0, player: 0, seq: 0, command: { kind: 'move', units: [a, b], x: at(40), y: at(40) } },
       0,
@@ -184,8 +189,8 @@ describe('world bookkeeping', () => {
 
   it('reports a full world instead of overflowing', () => {
     const world = new World(defaultConfig({ maxEntities: 2 }));
-    expect(world.spawn(0, 0, at(1), at(1))).toBeGreaterThanOrEqual(0);
-    expect(world.spawn(0, 0, at(2), at(1))).toBeGreaterThanOrEqual(0);
-    expect(world.spawn(0, 0, at(3), at(1))).toBe(-1);
+    expect(world.spawnUnit(0, 0, at(1), at(1))).toBeGreaterThanOrEqual(0);
+    expect(world.spawnUnit(0, 0, at(2), at(1))).toBeGreaterThanOrEqual(0);
+    expect(world.spawnUnit(0, 0, at(3), at(1))).toBe(-1);
   });
 });

@@ -6,7 +6,7 @@
  */
 
 import { hashHex, hashWorld } from '../../sim/hash';
-import { UnitKind } from '../../sim/unitTypes';
+import { Kind } from '../../sim/entityTypes';
 import { defaultConfig } from '../../sim/world';
 import { LocalSession } from '../../session/localSession';
 import { FixedStepper } from '../../session/stepper';
@@ -42,9 +42,9 @@ async function start(): Promise<void> {
   const { world } = session;
   const [home, enemy] = world.map.starts;
   if (!home || !enemy) throw new Error('the map has no start positions');
-  session.issue(0, { kind: 'spawn', x: home.x, y: home.y, count: 24, unitType: UnitKind.Spearman });
-  session.issue(0, { kind: 'spawn', x: home.x + (5 << 16), y: home.y - (3 << 16), count: 8, unitType: UnitKind.Villager });
-  session.issue(1, { kind: 'spawn', x: enemy.x, y: enemy.y, count: 24, unitType: UnitKind.Spearman });
+  session.issue(0, { kind: 'spawn', x: home.x, y: home.y, count: 24, unitType: Kind.Spearman });
+  session.issue(0, { kind: 'spawn', x: home.x + (5 << 16), y: home.y - (3 << 16), count: 8, unitType: Kind.Villager });
+  session.issue(1, { kind: 'spawn', x: enemy.x, y: enemy.y, count: 24, unitType: Kind.Spearman });
   // Let everyone find their feet before the curtain goes up.
   for (let i = 0; i < 90; i++) session.step();
 

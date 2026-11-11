@@ -168,7 +168,9 @@ describe('generated maps', () => {
   });
 
   it('match a recorded map, so a change to the generator is noticed', () => {
-    expect(buildMap(64, 64, 20261111, { kind: 'generated' }).checksum.toString(16)).toBe('8ff390ae');
+    // The lie of the land, then what stands on it.
+    const map = buildMap(64, 64, 20261111, { kind: 'generated' });
+    expect(`${map.checksum.toString(16)} ${(map.stateHash >>> 0).toString(16)}`).toBe('93db42d2 fe982e0e');
   });
 
   it('are fair: identical under a half turn, in terrain and in height', () => {
@@ -243,6 +245,77 @@ describe('generated maps', () => {
         expect(regions.size, `${width}x${height} seed ${seed}`).toBe(1);
       }
     }
+  });
+
+  it('give both starts the same resources within a short walk', () => {
+    for (const [width, height] of sizes) {
+      for (let seed = 1; seed <= 25; seed++) {
+        const map = buildMap(width, height, seed, { kind: 'generated' });
+        const home = map.region[map.tileAt(map.starts[0]!.x, map.starts[0]!.y)]!;
+        const counts = map.starts.map((start) => {
+          const near = [0, 0, 0, 0, 0, 0, 0, 0];
+          const sx = start.x >> 16;
+          const sy = start.y >> 16;
+          for (let ty = sy - 13; ty <= sy + 13; ty++) {
+            for (let tx = sx - 13; tx <= sx + 13; tx++) {
+              if (tx < 0 || ty < 0 || tx >= width || ty >= height) continue;
+              near[map.terrain[map.index(tx, ty)]!]!++;
+            }
+          }
+          return near;
+        });
+        const label = `${width}x${height} seed ${seed}`;
+        expect(counts[0]![Terrain.Berries], label).toBeGreaterThanOrEqual(6);
+        expect(counts[0]![Terrain.Gold], label).toBeGreaterThanOrEqual(6);
+        expect(counts[0]![Terrain.Stone], label).toBeGreaterThanOrEqual(4);
+        expect(counts[0]![Terrain.Forest], label).toBeGreaterThanOrEqual(15);
+        expect(counts[1], label).toEqual(counts[0]);
+        // Every berry, stone and gold tile can be stood beside and worked.
+        for (let tile = 0; tile < map.tileCount; tile++) {
+          const terrain = map.terrain[tile]!;
+          if (terrain === Terrain.Berries || terrain === Terrain.Stone || terrain === Terrain.Gold) {
+            expect(map.canBeWorkedFrom(tile, home), `${label} tile ${tile}`).toBe(true);
+            expect(map.amount[tile]).toBeGreaterThan(0);
+          }
+        }
+        // The town centre's ground and the ring round it stay clear.
+        const sx = map.starts[0]!.x >> 16;
+        const sy = map.starts[0]!.y >> 16;
+        for (let oy = -4; oy <= 4; oy++) {
+          for (let ox = -4; ox <= 4; ox++) expect(map.terrain[map.index(sx + ox, sy + oy)], label).toBe(Terrain.Grass);
+        }
+      }
+    }
+  });
+
+  it('put more gold and stone out in contested ground', () => {
+    const map = buildMap(128, 128, 3, { kind: 'generated' });
+    const far = (tile: number): boolean =>
+      map.starts.every((start) => {
+        const dx = (tile % map.width) - (start.x >> 16);
+        const dy = Math.floor(tile / map.width) - (start.y >> 16);
+        return dx * dx + dy * dy >= 15 * 15;
+      });
+    let gold = 0;
+    let stone = 0;
+    for (let tile = 0; tile < map.tileCount; tile++) {
+      if (!far(tile)) continue;
+      if (map.terrain[tile] === Terrain.Gold) gold++;
+      if (map.terrain[tile] === Terrain.Stone) stone++;
+    }
+    expect(gold).toBe(36);
+    expect(stone).toBe(24);
+  });
+
+  it('keep count of what each tile holds', () => {
+    const map = ascii(['.Tbsg#~,']);
+    expect(Array.from(map.amount)).toEqual([0, 100, 250, 500, 700, 0, 0, 0]);
+    const before = map.stateHash;
+    expect(map.harvest(1)).toBe(false);
+    expect(map.amount[1]).toBe(99);
+    expect(map.stateHash).not.toBe(before);
+    expect(map.harvest(0)).toBe(false); // nothing to take from grass
+    expect(map.amount[0]).toBe(0);
   });
 
   it('refuse sizes too small to hold a river and two bases', () => {

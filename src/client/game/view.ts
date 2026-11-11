@@ -347,7 +347,7 @@ export class GameView {
       batch.count = 0;
       let living = 0;
       for (let slot = 0; slot < world.highWater; slot++) {
-        if (world.alive[slot] === 1 && world.unitType[slot] === this.batches.indexOf(batch)) living++;
+        if (world.alive[slot] === 1 && world.entityType[slot] === this.batches.indexOf(batch)) living++;
       }
       if (living > batch.capacity) this.growBatch(batch, Math.max(living, batch.capacity * 2));
     }
@@ -359,7 +359,7 @@ export class GameView {
 
     for (let slot = 0; slot < world.highWater; slot++) {
       if (world.alive[slot] === 0) continue;
-      const batch = this.batches[world.unitType[slot]!];
+      const batch = this.batches[world.entityType[slot]!];
       if (batch === undefined) continue;
       const curX = toFloat(world.posX[slot]!);
       const curY = toFloat(world.posY[slot]!);
