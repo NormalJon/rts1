@@ -1,8 +1,9 @@
-import { buildPointsNeeded, ENTITY_TYPES, RESOURCE_COUNT, resourceOfTerrain, TRAIN_QUEUE_LENGTH } from '../src/sim/entityTypes';
+import { canPlace } from '../src/sim/buildings';
+import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, resourceOfTerrain, TRAIN_QUEUE_LENGTH } from '../src/sim/entityTypes';
 import { fromInt, length } from '../src/sim/fixed';
 import { hashWorld } from '../src/sim/hash';
 import { Rng } from '../src/sim/rng';
-import { ORDER_QUEUE_LENGTH, type SimConfig, type World } from '../src/sim/world';
+import { ORDER_QUEUE_LENGTH, SHOT_FIELDS, type SimConfig, type World } from '../src/sim/world';
 import { LocalSession } from '../src/session/localSession';
 
 export interface PlayedMatch {
@@ -14,7 +15,8 @@ export interface PlayedMatch {
 /**
  * Plays a match in which every player issues random commands, the way a
  * fuzzer would: spawning, moving random groups (sometimes as queued
- * waypoints), stopping them, with a random input delay each time. The
+ * waypoints), stopping them, gathering, building, training and attacking,
+ * with a random input delay each time. The
  * "decisions" come from their own seeded generator, so a given
  * (config, scriptSeed) always produces the same match.
  */
@@ -31,6 +33,7 @@ export function playRandomMatch(
   const randomY = (): number => fromInt(script.nextInt(config.mapHeight));
   const unitTypes = ENTITY_TYPES.map((type, index) => (type.building ? -1 : index)).filter((index) => index >= 0);
   const randomUnitType = (): number => unitTypes[script.nextInt(unitTypes.length)]!;
+  const soldierTypes = unitTypes.filter((index) => ENTITY_TYPES[index]!.aggressive);
   /** Usually a resource tile not far from the player's start; now and then any tile at all. */
   const randomTile = (player: number): number => {
     if (script.chance(1, 6)) return script.nextInt(world.map.tileCount);
@@ -70,6 +73,45 @@ export function playRandomMatch(
 
   const hashes: number[] = [];
   while (world.tick < ticks) {
+    // Early on each player founds a house on the first free plot near home
+    // and sets one of the villagers who are never marched about to building it, so
+    // that every match has some building in it whatever the dice say later.
+    if (config.start === 'standard' && world.tick === 60) {
+      session.inputDelayTicks = 0;
+      for (let player = 0; player < config.playerCount; player++) {
+        const start = world.map.starts[player];
+        if (start === undefined) continue;
+        const plot = world.map.nearestTile(start.x >> 16, start.y >> 16, 12, (tile) =>
+          canPlace(world, Kind.House, tile % config.mapWidth, Math.floor(tile / config.mapWidth)),
+        );
+        if (plot === -1) continue;
+        session.issue(player, {
+          kind: 'build',
+          units: world.livingUnits(player).filter((id) => (id & 0xfffff) % 3 === 0).slice(0, 1),
+          buildingType: Kind.House,
+          tileX: plot % config.mapWidth,
+          tileY: Math.floor(plot / config.mapWidth),
+        });
+      }
+    }
+    // Twice in the match a war band from each side appears a few tiles apart
+    // near one player's town, so that there is a fight to the finish whatever
+    // else the random orders do. A third of them are never ordered away.
+    const fightAt = config.start === 'standard' ? [240, 1000].indexOf(world.tick) : -1;
+    const home = fightAt === -1 ? undefined : world.map.starts[fightAt % config.playerCount];
+    if (home !== undefined) {
+      session.inputDelayTicks = 0;
+      const towardMiddle = home.x < fromInt(config.mapWidth >> 1) ? 1 : -1;
+      for (let player = 0; player < config.playerCount; player++) {
+        session.issue(player, {
+          kind: 'spawn',
+          x: home.x + fromInt(towardMiddle * (8 + player * 5)),
+          y: home.y,
+          count: 9,
+          unitType: soldierTypes[script.nextInt(soldierTypes.length)]!,
+        });
+      }
+    }
     for (let player = 0; player < config.playerCount; player++) {
       session.inputDelayTicks = script.nextInt(7);
       if (script.chance(1, 14)) {
@@ -82,7 +124,31 @@ export function playRandomMatch(
         });
       }
       if (script.chance(1, 120)) {
-        session.issue(player, { kind: 'stop', units: randomGroup(player) });
+        session.issue(player, { kind: script.chance(1, 3) ? 'hold' : 'stop', units: randomGroup(player) });
+      }
+      // Fighting: marches that stop to fight, patrols, and going after one enemy (or, wrongly, a friend).
+      if (script.chance(1, 40)) {
+        const others = world.livingEntities().filter((id) => world.owner[id & 0xfffff] !== player);
+        const foe = others.length > 0 ? others[script.nextInt(others.length)]! : -1;
+        const pick = script.nextInt(8);
+        if (pick < 4 && foe !== -1) {
+          // Usually toward where the enemy is, so that the two sides meet.
+          session.issue(player, {
+            kind: 'attackMove',
+            units: randomGroup(player),
+            x: world.posX[foe & 0xfffff]!,
+            y: world.posY[foe & 0xfffff]!,
+            queue: script.chance(1, 4),
+          });
+        } else if (pick < 5) {
+          session.issue(player, { kind: 'attackMove', units: randomGroup(player), x: randomX(), y: randomY() });
+        } else if (pick < 6) {
+          session.issue(player, { kind: 'patrol', units: randomGroup(player), x: randomX(), y: randomY() });
+        } else {
+          const everything = world.livingEntities();
+          const target = script.chance(1, 5) && everything.length > 0 ? everything[script.nextInt(everything.length)]! : foe;
+          session.issue(player, { kind: 'attack', units: randomGroup(player), target });
+        }
       }
       if (script.chance(1, config.start === 'standard' ? 700 : 200)) {
         session.issue(player, {
@@ -118,7 +184,7 @@ export function playRandomMatch(
       }
       if (script.chance(1, 60)) {
         // Mostly something trainable; sometimes nonsense.
-        const unitType = script.chance(3, 4) ? script.nextInt(2) : script.nextInt(ENTITY_TYPES.length + 2);
+        const unitType = script.chance(3, 4) ? randomUnitType() : script.nextInt(ENTITY_TYPES.length + 2);
         session.issue(player, { kind: 'train', building: randomBuilding(), unitType });
       }
       if (script.chance(1, 500)) {
@@ -145,7 +211,7 @@ export function playRandomMatch(
  */
 const startingTotals = new WeakMap<World, number[]>();
 
-/** Everything of each resource there is: in the ground, on villagers' backs, in the stores, and spent. */
+/** Everything of each resource there is: in the ground, on villagers' backs, in the stores, spent, and lost with the dead. */
 export function resourceTotals(world: World): number[] {
   const totals = new Array<number>(RESOURCE_COUNT).fill(0);
   const { map } = world;
@@ -158,6 +224,7 @@ export function resourceTotals(world: World): number[] {
     if (world.alive[slot] === 1) totals[world.carryKind[slot]!]! += world.carry[slot]!;
   }
   for (let i = 0; i < world.stock.length; i++) totals[i % RESOURCE_COUNT]! += world.stock[i]! + world.spent[i]!;
+  for (let r = 0; r < RESOURCE_COUNT; r++) totals[r]! += world.lost[r]!;
   return totals;
 }
 
@@ -219,6 +286,11 @@ export function brokenInvariant(world: World): string | null {
     const y = world.posY[slot]!;
     const type = ENTITY_TYPES[world.entityType[slot]!]!;
     if (world.carry[slot]! > type.carries) return `unit ${slot} carries more than it can`;
+    if (world.hp[slot]! <= 0) return `entity ${slot} is alive with ${world.hp[slot]} hit points`;
+    if (world.hp[slot]! > type.hp) return `entity ${slot} has more hit points than its kind allows`;
+    if (world.orderKind[slot]! > 5) return `entity ${slot} has an order of no known kind`;
+    if (world.engaged[slot] === 0 && world.homeGroup[slot] !== 0) return `unit ${slot} is holding a march open without being in a fight`;
+    if (world.windup[slot]! > 0 && world.moveState[slot] !== 0) return `unit ${slot} is striking a blow on the move`;
     if (world.mobile[slot] === 0) {
       if (world.moveState[slot] !== 0 || world.group[slot] !== 0) return `building ${slot} has been given orders`;
       const needed = buildPointsNeeded(world.entityType[slot]!, world.config.tickRate);
@@ -233,6 +305,7 @@ export function brokenInvariant(world: World): string | null {
     if (x < 0 || y < 0 || x > map.maxX || y > map.maxY) return `unit ${slot} is off the map`;
     if (map.passable[map.tileAt(x, y)] === 0) return `unit ${slot} is standing in an obstacle`;
     claim(world.group[slot]!);
+    claim(world.homeGroup[slot]!);
     for (let k = 0; k < world.queueLength[slot]!; k++) claim(world.queueGroup[slot * ORDER_QUEUE_LENGTH + k]!);
   }
   let blocked = 0;
@@ -245,6 +318,9 @@ export function brokenInvariant(world: World): string | null {
   }
   for (const id of claims.keys()) {
     if (!world.groups.has(id)) return `units refer to group ${id}, which no longer exists`;
+  }
+  for (let i = 0; i < world.shotCount; i++) {
+    if (world.shots[i * SHOT_FIELDS + 6]! < world.tick) return `arrow ${i} should have landed already`;
   }
   return null;
 }

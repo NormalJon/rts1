@@ -1,4 +1,5 @@
 export * from './buildings';
+export * from './combat';
 export * from './commands';
 export * from './economy';
 export * from './entityTypes';

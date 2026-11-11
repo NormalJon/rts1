@@ -6,6 +6,7 @@
  * step() is called is the caller's business (see session/stepper.ts).
  */
 
+import { combatSystem } from './combat';
 import { economySystem } from './economy';
 import { movementSystem } from './movement';
 import { applyCommand } from './orders';
@@ -17,6 +18,7 @@ export function step(world: World): void {
   for (const entry of world.commands.takeDue(world.tick)) applyCommand(world, entry);
   productionSystem(world);
   economySystem(world);
+  combatSystem(world);
   routingSystem(world);
   movementSystem(world);
   world.tick++;

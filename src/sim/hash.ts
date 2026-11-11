@@ -7,7 +7,7 @@
  * replays and saved games reproduce a match exactly.
  */
 
-import type { RouteRequest, World } from './world';
+import { SHOT_FIELDS, type RouteRequest, type World } from './world';
 
 /** One round of MurmurHash3 (32-bit). */
 function mix(h: number, value: number): number {
@@ -52,6 +52,9 @@ export function hashWorld(world: World): number {
   add(world.map.stateHash);
   for (let i = 0; i < world.stock.length; i++) add(world.stock[i]!);
   for (let i = 0; i < world.spent.length; i++) add(world.spent[i]!);
+  for (let i = 0; i < world.lost.length; i++) add(world.lost[i]!);
+  add(world.shotCount);
+  for (let i = 0; i < world.shotCount * SHOT_FIELDS; i++) add(world.shots[i]!);
   for (const word of world.rng.getState()) add(word);
   add(world.highWater);
   add(world.freeSlots.length);

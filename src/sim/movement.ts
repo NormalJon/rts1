@@ -12,6 +12,7 @@
  *      checks whether it has arrived or is getting nowhere.
  */
 
+import { CHARGE_RUN_SECONDS, ENTITY_TYPES, ticksOf } from './entityTypes';
 import { fromRatio, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
 import { DIR_X, DIR_Y } from './map';
 import { chooseRoute, finishOrder, requestPath } from './routing';
@@ -29,7 +30,7 @@ const SETTLE_RANGE: Fixed = 2 * ONE;
 /** How many times a blocked unit asks for a fresh route before giving up. */
 const MAX_RETRIES = 2;
 /** The neighbour grid's cells are two tiles across. */
-const CELL_SHIFT = 17;
+export const CELL_SHIFT = 17;
 
 /** Flags noted during separation, per unit. */
 const PUSHED_BY_STANDING = 1;
@@ -46,6 +47,7 @@ export function movementSystem(world: World): void {
   buildNeighbourGrid(world);
   const steerEvery = Math.max(1, idiv(world.config.tickRate, 8));
   const stuckLimit = Math.max(4, idiv(world.config.tickRate * 3, 2));
+  const fullRun = ticksOf(CHARGE_RUN_SECONDS, world.config.tickRate);
 
   const { alive, moveState, posX, posY } = world;
   const nextX = world.scratchX;
@@ -80,6 +82,18 @@ export function movementSystem(world: World): void {
     const fromX = posX[slot]!;
     const fromY = posY[slot]!;
     settleOnGround(world, slot, nextX[slot]! + pushX[slot]!, nextY[slot]! + pushY[slot]!);
+    if (ENTITY_TYPES[world.entityType[slot]!]!.charge > 0) {
+      // A rider gathers way while it keeps moving and loses it standing about,
+      // though not in the moment between pulling up and striking.
+      const dx = posX[slot]! - fromX;
+      const dy = posY[slot]! - fromY;
+      const way = world.momentum[slot]!;
+      if ((dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy) >= world.speed[slot]! >> 1) {
+        if (way < fullRun) world.momentum[slot] = way + 1;
+      } else if (way > 0 && world.windup[slot] === 0) {
+        world.momentum[slot] = way - 1;
+      }
+    }
     const state = moveState[slot]!;
     if (state === MoveState.Idle) {
       // Two standing units that crowd each other both shuffle over for good.
@@ -137,7 +151,7 @@ export function movementSystem(world: World): void {
 }
 
 /** Sorts units into grid cells so each can find its neighbours quickly. */
-function buildNeighbourGrid(world: World): void {
+export function buildNeighbourGrid(world: World): void {
   const { alive, mobile, posX, posY, cellStart, cellItems } = world;
   const columns = (world.map.width + 1) >> 1;
   cellStart.fill(0);
@@ -263,7 +277,7 @@ function stepToward(world: World, slot: number, x: Fixed, y: Fixed, tolerance: F
  * overlap its neighbours' intended positions.
  */
 function separate(world: World): void {
-  const { alive, moveState, owner, radius, dirX, dirY, cellStart, cellItems } = world;
+  const { alive, moveState, owner, radius, rooted, dirX, dirY, cellStart, cellItems } = world;
   const nextX = world.scratchX;
   const nextY = world.scratchY;
   const pushX = world.scratchPushX;
@@ -301,7 +315,10 @@ function separate(world: World): void {
 
           // How much of the overlap this unit gives up: none, half or all.
           const otherMoving = moveState[other]! >= MoveState.Path;
-          const comrades = owner[slot] === owner[other];
+          // A soldier planted in front of an enemy holds its ground against
+          // friend and foe alike, so the ranks behind go round the fighting
+          // line instead of shoving it out of reach.
+          const comrades = owner[slot] === owner[other] && rooted[slot] === 0 && rooted[other] === 0;
           let halves: number;
           if (otherMoving) flag |= PUSHED_BY_MOVING;
           if (moving === otherMoving) {

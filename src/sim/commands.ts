@@ -12,8 +12,8 @@ import type { Fixed } from './fixed';
 
 export type Command =
   /**
-   * Scaffolding for the core build: drops units on the map so there is
-   * something to move. Production buildings replace it in step 4.
+   * Scaffolding for tests and debug pages: drops units on the map without
+   * their being trained or paid for.
    */
   | {
       readonly kind: 'spawn';
@@ -32,7 +32,33 @@ export type Command =
       readonly queue?: boolean;
     }
   | {
+      /** Like move, but the units fight whatever they meet on the way and then carry on. */
+      readonly kind: 'attackMove';
+      readonly units: readonly EntityId[];
+      readonly x: Fixed;
+      readonly y: Fixed;
+      readonly queue?: boolean;
+    }
+  | {
+      /** Walk to and fro between where each unit stands and this point, fighting whatever comes near. */
+      readonly kind: 'patrol';
+      readonly units: readonly EntityId[];
+      readonly x: Fixed;
+      readonly y: Fixed;
+    }
+  | {
+      /** Go after one enemy unit or building until it is destroyed. */
+      readonly kind: 'attack';
+      readonly units: readonly EntityId[];
+      readonly target: EntityId;
+    }
+  | {
       readonly kind: 'stop';
+      readonly units: readonly EntityId[];
+    }
+  | {
+      /** Stand fast: strike at what comes within reach, but never give chase. */
+      readonly kind: 'hold';
       readonly units: readonly EntityId[];
     }
   | {
@@ -58,7 +84,7 @@ export type Command =
       readonly tileY: number;
     }
   | {
-      /** Work on a building site that already exists. */
+      /** Work on a building site that already exists, or mend a damaged building. */
       readonly kind: 'construct';
       readonly units: readonly EntityId[];
       readonly target: EntityId;

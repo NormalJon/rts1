@@ -12,9 +12,10 @@
 
 import type { ScheduledCommand } from './commands';
 import { ENTITY_TYPES } from './entityTypes';
+import { idiv } from './fixed';
 import type { RngState } from './rng';
 import { checksumBytes, restoreSearch } from './routing';
-import { World, type RouteRequest, type SimConfig } from './world';
+import { SHOT_FIELDS, World, type RouteRequest, type SimConfig } from './world';
 
 interface SavedGroup {
   readonly id: number;
@@ -41,7 +42,7 @@ interface SavedSearch {
 }
 
 export interface WorldSnapshot {
-  readonly version: 4;
+  readonly version: 5;
   readonly config: SimConfig;
   readonly tick: number;
   readonly rng: RngState;
@@ -53,6 +54,10 @@ export interface WorldSnapshot {
   /** Each player's stockpile, and what they have spent. */
   readonly stock: readonly number[];
   readonly spent: readonly number[];
+  /** Resources that died with the villagers carrying them. */
+  readonly lost: readonly number[];
+  /** Arrows in the air, SHOT_FIELDS numbers each. */
+  readonly shots: readonly number[];
   /** Each entity property by name, holding slots 0 to highWater - 1. */
   readonly columns: Readonly<Record<string, readonly number[]>>;
   /** Waypoint lists by slot, for units following their own path. */
@@ -77,7 +82,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
   }
   const active = world.activeSearch;
   return {
-    version: 4,
+    version: 5,
     config: { ...world.config },
     tick: world.tick,
     rng: world.rng.getState(),
@@ -87,6 +92,8 @@ export function takeSnapshot(world: World): WorldSnapshot {
     amount: Array.from(world.map.amount),
     stock: Array.from(world.stock),
     spent: Array.from(world.spent),
+    lost: Array.from(world.lost),
+    shots: Array.from(world.shots.subarray(0, world.shotCount * SHOT_FIELDS)),
     columns,
     paths,
     nextGroupId: world.nextGroupId,
@@ -115,7 +122,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
 }
 
 export function restoreSnapshot(snapshot: WorldSnapshot): World {
-  if (snapshot.version !== 4) {
+  if (snapshot.version !== 5) {
     throw new Error(`unsupported snapshot version ${String(snapshot.version)}`);
   }
   const world = new World(snapshot.config, true);
@@ -148,6 +155,10 @@ export function restoreSnapshot(snapshot: WorldSnapshot): World {
   }
   world.stock.set(snapshot.stock);
   world.spent.set(snapshot.spent);
+  world.lost.set(snapshot.lost);
+  if (snapshot.shots.length > world.shots.length) world.shots = new Int32Array(snapshot.shots.length);
+  world.shots.set(snapshot.shots);
+  world.shotCount = idiv(snapshot.shots.length, SHOT_FIELDS);
   world.nextGroupId = snapshot.nextGroupId;
   for (const saved of [...snapshot.groups].sort((a, b) => a.id - b.id)) {
     const field = saved.field === null ? null : Uint8Array.from(saved.field);

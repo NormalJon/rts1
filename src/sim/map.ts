@@ -209,6 +209,15 @@ export class GameMap {
     return ty * this.width + tx;
   }
 
+  /** How high the ground is at a tile: the average of its four corners. */
+  heightOf(tile: number): Fixed {
+    // Corners are stored in rows one longer than the rows of tiles.
+    const corner = tile + idiv(tile, this.width);
+    const below = corner + this.width + 1;
+    const e = this.elevation;
+    return (e[corner]! + e[corner + 1]! + e[below]! + e[below + 1]!) >> 2;
+  }
+
   isPassable(tx: number, ty: number): boolean {
     return (
       tx >= 0 && ty >= 0 && tx < this.width && ty < this.height && this.passable[ty * this.width + tx] === 1

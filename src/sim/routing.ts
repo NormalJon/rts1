@@ -7,11 +7,12 @@
  * is not ready yet simply waits, usually for a tick or less.
  */
 
-import { FIXED_MAX, idiv } from './fixed';
+import { FIXED_MAX, idiv, length, ONE } from './fixed';
 import { AStarSearch, FieldSearch } from './search';
 import {
   GroupStatus,
   MoveState,
+  OrderKind,
   ORDER_QUEUE_LENGTH,
   type ActiveSearch,
   type RouteRequest,
@@ -151,21 +152,51 @@ export function finishOrder(world: World, slot: number): void {
   world.retries[slot] = 0;
   world.moveState[slot] = MoveState.Idle;
 
+  // A unit that is after an enemy has only caught up with it, or been held
+  // up on the way. What it does next is for the fighting to decide.
+  if (world.engaged[slot] === 1) return;
+
+  if (world.orderKind[slot] === OrderKind.Patrol) {
+    // Reached one end of the beat: turn round and walk back to the other.
+    const backX = world.otherX[slot]!;
+    const backY = world.otherY[slot]!;
+    if (length(backX - world.posX[slot]!, backY - world.posY[slot]!) > ONE) {
+      world.otherX[slot] = world.goalX[slot]!;
+      world.otherY[slot] = world.goalY[slot]!;
+      beginOrder(world, slot, 0, backX, backY);
+      return;
+    }
+  }
+  startNextOrder(world, slot);
+}
+
+/**
+ * Starts a unit on the first order waiting in its queue. With none waiting it
+ * goes back to guarding where it stands.
+ */
+export function startNextOrder(world: World, slot: number): void {
   const waiting = world.queueLength[slot]!;
-  if (waiting === 0) return;
+  if (waiting === 0) {
+    world.orderKind[slot] = OrderKind.None;
+    return;
+  }
   const base = slot * ORDER_QUEUE_LENGTH;
   const groupId = world.queueGroup[base]!;
   const goalX = world.queueX[base]!;
   const goalY = world.queueY[base]!;
+  const kind = world.queueKind[base]!;
   for (let k = 1; k < waiting; k++) {
     world.queueGroup[base + k - 1] = world.queueGroup[base + k]!;
     world.queueX[base + k - 1] = world.queueX[base + k]!;
     world.queueY[base + k - 1] = world.queueY[base + k]!;
+    world.queueKind[base + k - 1] = world.queueKind[base + k]!;
   }
   world.queueGroup[base + waiting - 1] = 0;
   world.queueX[base + waiting - 1] = 0;
   world.queueY[base + waiting - 1] = 0;
+  world.queueKind[base + waiting - 1] = 0;
   world.queueLength[slot] = waiting - 1;
+  world.orderKind[slot] = kind;
   // The queued entry's claim on its group becomes the current order's claim.
   beginOrder(world, slot, groupId, goalX, goalY);
 }
@@ -250,6 +281,8 @@ function finishSearch(world: World, active: ActiveSearch): void {
       // Nowhere to go. Stay put and carry on with whatever is queued next.
       world.goalX[slot] = world.posX[slot]!;
       world.goalY[slot] = world.posY[slot]!;
+      // A patrol with an end that cannot be reached is no patrol.
+      if (world.orderKind[slot] === OrderKind.Patrol) world.orderKind[slot] = OrderKind.None;
       finishOrder(world, slot);
       return;
     }

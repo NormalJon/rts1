@@ -369,8 +369,9 @@ describe('units getting in each other\'s way', () => {
     expect(distanceTo(world, sentry, 15.0, 15.0)).toBeLessThan(0.05);
   });
 
-  it('go round a standing enemy, who does not give way', () => {
-    const world = flatWorld(30);
+  it('go round a standing unit of another player, who does not give way', () => {
+    // Allies, so that this is about getting past and not about fighting.
+    const world = flatWorld(30, { teams: [0, 0] });
     const enemy = place(world, 1, 15.0, 15.0);
     const unit = place(world, 0, 15.0, 8.0);
     move(world, 0, [unit], 15.0, 22.0);

@@ -14,7 +14,8 @@
  * stockpile, or spent; nothing is created or lost along the way.
  *
  * Building is simpler: walk to the site, work until it is finished, then
- * find something useful to do next.
+ * find something useful to do next. A site gains hit points as it goes up.
+ * Mending a damaged building is the same job on a finished one.
  */
 
 import {
@@ -23,6 +24,7 @@ import {
   LONE_BUILDER_POINTS,
   RESOURCE_COUNT,
   resourceOfTerrain,
+  siteHp,
   terrainsAccepted,
   ticksPerUnit,
 } from './entityTypes';
@@ -95,9 +97,13 @@ export function assignDelivery(world: World, slot: number, building: EntityId): 
   startDelivery(world, slot, building);
 }
 
-/** Sends a villager to work on a building site. Returns false if it is not one of the player's unfinished buildings. */
+/**
+ * Sends a villager to work on a building: to finish it, or, if it is finished
+ * but damaged, to mend it. Returns false if it is not one of the player's
+ * buildings or needs no work.
+ */
 export function assignConstruction(world: World, slot: number, site: EntityId): boolean {
-  if (!isSite(world, site, world.owner[slot]!) || !ENTITY_TYPES[world.entityType[slot]!]!.builds) return false;
+  if (!needsWork(world, site, world.owner[slot]!) || !ENTITY_TYPES[world.entityType[slot]!]!.builds) return false;
   world.clearOrders(slot);
   world.clearJob(slot);
   if (!walkToEdgeOf(world, slot, entityIndex(site), true)) return false;
@@ -422,18 +428,19 @@ function startDelivery(world: World, slot: number, building: EntityId = NO_ENTIT
 
 // ---- Building ----------------------------------------------------------------
 
-/** Whether this is one of the player's buildings that is still being built. */
-function isSite(world: World, id: EntityId, owner: number): boolean {
+/** Whether this is one of the player's buildings that is unfinished or damaged. */
+function needsWork(world: World, id: EntityId, owner: number): boolean {
   if (!world.isAlive(id)) return false;
   const slot = entityIndex(id);
-  return world.mobile[slot] === 0 && world.owner[slot] === owner && world.built[slot] === 0;
+  if (world.mobile[slot] === 1 || world.owner[slot] !== owner) return false;
+  return world.built[slot] === 0 || world.hp[slot]! < ENTITY_TYPES[world.entityType[slot]!]!.hp;
 }
 
 /** One tick of a villager's building job. */
 function build(world: World, slot: number): void {
   const site = world.jobTarget[slot]!;
-  if (!isSite(world, site, world.owner[slot]!)) {
-    // Finished by the others, or pulled down.
+  if (!needsWork(world, site, world.owner[slot]!)) {
+    // Finished by the others, or destroyed.
     afterBuilding(world, slot, site);
     return;
   }
@@ -459,12 +466,31 @@ function build(world: World, slot: number): void {
     if (arrived && !walkToEdgeOf(world, slot, at, true)) stopWorking(world, slot);
     return;
   }
+  const typeId = world.entityType[at]!;
+  const type = ENTITY_TYPES[typeId]!;
+  if (world.built[at] === 1) {
+    // Mending. One villager would restore a building from nothing in twice
+    // the time it took to build. The villager's timer keeps the fractions.
+    const full = type.seconds * world.config.tickRate * 2;
+    const work = world.jobTimer[slot]! + type.hp;
+    const mended = idiv(work, full);
+    world.jobTimer[slot] = work - mended * full;
+    world.hp[at] = Math.min(type.hp, world.hp[at]! + mended);
+    if (world.hp[at]! >= type.hp) afterBuilding(world, slot, site);
+    return;
+  }
   // The first builder to reach a site each tick does the most; each helper adds a little.
   const points = world.scratchBuilders[at] === 0 ? LONE_BUILDER_POINTS : 1;
   world.scratchBuilders[at] = world.scratchBuilders[at]! + 1;
-  const needed = buildPointsNeeded(world.entityType[at]!, world.config.tickRate);
-  world.buildPoints[at] = Math.min(needed, world.buildPoints[at]! + points);
-  if (world.buildPoints[at]! >= needed) {
+  const needed = buildPointsNeeded(typeId, world.config.tickRate);
+  const before = world.buildPoints[at]!;
+  const after = Math.min(needed, before + points);
+  world.buildPoints[at] = after;
+  // The walls go up with the work: the rest of its hit points arrive in step with the building.
+  const toCome = type.hp - siteHp(typeId);
+  const gained = idiv(toCome * after, needed) - idiv(toCome * before, needed);
+  world.hp[at] = Math.min(type.hp, world.hp[at]! + gained);
+  if (after >= needed) {
     world.built[at] = 1;
     afterBuilding(world, slot, site);
   }

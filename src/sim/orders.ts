@@ -12,7 +12,7 @@ import { ENTITY_TYPES, resourceOfTerrain } from './entityTypes';
 import { clamp, fromRatio, HALF, idiv, isqrt, length, mul, mulDiv, ONE, type Fixed } from './fixed';
 import { cancelTraining, queueTraining } from './production';
 import { beginOrder } from './routing';
-import { entityIndex, MoveState, NO_ENTITY, ORDER_QUEUE_LENGTH, type World } from './world';
+import { entityIndex, MoveState, NO_ENTITY, OrderKind, ORDER_QUEUE_LENGTH, type World } from './world';
 
 /** Limits on what a single command may ask for, whoever sent it. */
 const MAX_UNITS_PER_COMMAND = 1024;
@@ -41,12 +41,23 @@ export function applyCommand(world: World, entry: ScheduledCommand): void {
       applySpawn(world, player, command);
       break;
     case 'move':
-      applyMove(world, player, command);
+      applyMove(world, player, command.units, command.x, command.y, command.queue === true, OrderKind.Move);
+      break;
+    case 'attackMove':
+      applyMove(world, player, command.units, command.x, command.y, command.queue === true, OrderKind.AttackMove);
+      break;
+    case 'patrol':
+      applyMove(world, player, command.units, command.x, command.y, false, OrderKind.Patrol);
+      break;
+    case 'attack':
+      applyAttack(world, player, command);
       break;
     case 'stop':
+    case 'hold':
       for (const slot of ownedSlots(world, player, command.units)) {
         world.clearOrders(slot);
         world.clearJob(slot);
+        if (command.kind === 'hold') world.orderKind[slot] = OrderKind.Hold;
       }
       break;
     case 'gather':
@@ -89,9 +100,27 @@ function sendBuilders(world: World, player: number, units: readonly number[], si
   for (const slot of ownedSlots(world, player, units)) {
     if (!assignConstruction(world, slot, site)) walkers.push(world.idAt(slot));
   }
-  if (walkers.length > 0) {
-    applyMove(world, player, { kind: 'move', units: walkers, x: world.posX[at]!, y: world.posY[at]! });
+  if (walkers.length > 0) walk(world, player, walkers, world.posX[at]!, world.posY[at]!);
+}
+
+/** Sets the listed units on one enemy. They follow it until it is dead or they are told otherwise. */
+function applyAttack(world: World, player: number, command: Extract<Command, { kind: 'attack' }>): void {
+  const target = command.target;
+  if (!world.isAlive(target)) return;
+  if (!world.hostile(player, world.owner[entityIndex(target)]!)) return;
+  for (const slot of ownedSlots(world, player, command.units)) {
+    if (ENTITY_TYPES[world.entityType[slot]!]!.damage === 0) continue;
+    world.clearOrders(slot);
+    world.clearJob(slot);
+    world.orderKind[slot] = OrderKind.AttackTarget;
+    world.target[slot] = target;
+    world.engaged[slot] = 1;
   }
+}
+
+/** A plain march, for units sent to do something they cannot do: they walk over to it instead. */
+function walk(world: World, player: number, units: readonly number[], x: Fixed, y: Fixed): void {
+  applyMove(world, player, units, x, y, false, OrderKind.Move);
 }
 
 function applyRally(world: World, player: number, command: Extract<Command, { kind: 'rally' }>): void {
@@ -123,9 +152,7 @@ function applyGather(world: World, player: number, command: Extract<Command, { k
     const gathers = ENTITY_TYPES[world.entityType[slot]!]!.carries > 0;
     if (!gathers || !assignGather(world, slot, tile, taken)) walkers.push(world.idAt(slot));
   }
-  if (walkers.length > 0) {
-    applyMove(world, player, { kind: 'move', units: walkers, x: map.centreX(tile), y: map.centreY(tile) });
-  }
+  if (walkers.length > 0) walk(world, player, walkers, map.centreX(tile), map.centreY(tile));
 }
 
 function applyDeliver(world: World, player: number, command: Extract<Command, { kind: 'deliver' }>): void {
@@ -137,9 +164,7 @@ function applyDeliver(world: World, player: number, command: Extract<Command, { 
     if (world.carry[slot]! > 0) assignDelivery(world, slot, target);
     else walkers.push(world.idAt(slot));
   }
-  if (walkers.length > 0) {
-    applyMove(world, player, { kind: 'move', units: walkers, x: world.posX[at]!, y: world.posY[at]! });
-  }
+  if (walkers.length > 0) walk(world, player, walkers, world.posX[at]!, world.posY[at]!);
 }
 
 function applySpawn(world: World, player: number, command: Extract<Command, { kind: 'spawn' }>): void {
@@ -166,14 +191,26 @@ function applySpawn(world: World, player: number, command: Extract<Command, { ki
   }
 }
 
-function applyMove(world: World, player: number, command: Extract<Command, { kind: 'move' }>): void {
+/**
+ * Sends units to a place, drawn up in a block facing the way they travel.
+ *
+ * @param kind  How they treat enemies on the way: OrderKind.Move, AttackMove or Patrol.
+ */
+function applyMove(
+  world: World,
+  player: number,
+  units: readonly number[],
+  x: Fixed,
+  y: Fixed,
+  queue: boolean,
+  kind: number,
+): void {
   const { map } = world;
-  const slots = ownedSlots(world, player, command.units);
+  const slots = ownedSlots(world, player, units);
   if (slots.length === 0) return;
-  const queue = command.queue === true;
 
-  let destX = clamp(command.x | 0, 0, map.maxX);
-  let destY = clamp(command.y | 0, 0, map.maxY);
+  let destX = clamp(x | 0, 0, map.maxX);
+  let destY = clamp(y | 0, 0, map.maxY);
   let destTile = map.tileAt(destX, destY);
   if (map.passable[destTile] === 0) {
     // Ordered onto water, trees or rock: go to the nearest ground instead.
@@ -192,6 +229,10 @@ function applyMove(world: World, player: number, command: Extract<Command, { kin
     if (queue && waiting > 0) {
       fromX.push(world.queueX[slot * ORDER_QUEUE_LENGTH + waiting - 1]!);
       fromY.push(world.queueY[slot * ORDER_QUEUE_LENGTH + waiting - 1]!);
+    } else if (queue && world.engaged[slot] === 1 && world.orderKind[slot] !== OrderKind.None) {
+      // Broken off from a march to fight: the march ends where it was headed.
+      fromX.push(world.homeX[slot]!);
+      fromY.push(world.homeY[slot]!);
     } else if (queue && world.moveState[slot] !== MoveState.Idle) {
       fromX.push(world.goalX[slot]!);
       fromY.push(world.goalY[slot]!);
@@ -212,11 +253,11 @@ function applyMove(world: World, player: number, command: Extract<Command, { kin
       continue;
     }
     const tile = map.nearestPassable(destX >> 16, destY >> 16, region, Math.max(map.width, map.height));
-    if (tile !== -1) giveOrder(world, slot, 0, map.centreX(tile), map.centreY(tile), queue);
+    if (tile !== -1) giveOrder(world, slot, 0, map.centreX(tile), map.centreY(tile), queue, kind);
   }
   if (members.length === 0) return;
   if (members.length === 1) {
-    giveOrder(world, slots[members[0]!]!, 0, destX, destY, queue);
+    giveOrder(world, slots[members[0]!]!, 0, destX, destY, queue, kind);
     return;
   }
 
@@ -281,17 +322,30 @@ function applyMove(world: World, player: number, command: Extract<Command, { kin
         x = map.centreX(stand) + offset[0]! * (ONE >> 2);
         y = map.centreY(stand) + offset[1]! * (ONE >> 2);
       }
-      giveOrder(world, slots[rank[k]!]!, group.id, x, y, queue);
+      giveOrder(world, slots[rank[k]!]!, group.id, x, y, queue, kind);
     }
   }
   if (group.refs === 0) world.groups.delete(group.id);
 }
 
 /** Hands a unit a destination, either replacing what it is doing or adding to its queue. */
-function giveOrder(world: World, slot: number, groupId: number, x: Fixed, y: Fixed, queue: boolean): void {
+function giveOrder(
+  world: World,
+  slot: number,
+  groupId: number,
+  x: Fixed,
+  y: Fixed,
+  queue: boolean,
+  kind: number,
+): void {
   // Being sent somewhere takes a villager off its work.
   world.clearJob(slot);
-  const busy = world.moveState[slot] !== MoveState.Idle || world.queueLength[slot]! > 0;
+  // A unit with orders in hand, or one sent after a particular enemy, takes a queued order as its next.
+  const current = world.orderKind[slot]!;
+  const busy =
+    world.queueLength[slot]! > 0 ||
+    (current !== OrderKind.None && current !== OrderKind.Hold) ||
+    (current === OrderKind.None && world.engaged[slot] === 0 && world.moveState[slot] !== MoveState.Idle);
   if (queue && busy) {
     const waiting = world.queueLength[slot]!;
     if (waiting >= ORDER_QUEUE_LENGTH) return;
@@ -299,12 +353,19 @@ function giveOrder(world: World, slot: number, groupId: number, x: Fixed, y: Fix
     world.queueGroup[at] = groupId;
     world.queueX[at] = x;
     world.queueY[at] = y;
+    world.queueKind[at] = kind;
     world.queueLength[slot] = waiting + 1;
     world.retainGroup(groupId);
     return;
   }
+  const fromX = world.posX[slot]!;
+  const fromY = world.posY[slot]!;
   world.clearOrders(slot);
   world.retainGroup(groupId);
+  world.orderKind[slot] = kind;
+  // A patrol's beat runs from where the unit stands to where it is sent.
+  world.otherX[slot] = fromX;
+  world.otherY[slot] = fromY;
   beginOrder(world, slot, groupId, x, y);
 }
 

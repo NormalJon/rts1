@@ -27,12 +27,18 @@ describe('determinism', () => {
     let constructing = 0;
     let mostBuildings = 0;
     let mostQueued = 0;
+    let striking = 0;
+    let arrows = 0;
+    let fighting = 0;
     const { hashes, session } = playRandomMatch(config, 77, TICKS, (world) => {
       let buildings = 0;
+      arrows += world.shotCount;
       for (let slot = 0; slot < world.highWater; slot++) {
         if (world.alive[slot] === 0) continue;
         if (world.job[slot] === Job.Harvesting) harvesting++;
         if (world.job[slot] === Job.Constructing) constructing++;
+        if (world.windup[slot]! > 0) striking++;
+        if (world.engaged[slot] === 1) fighting++;
         if (world.mobile[slot] === 0) {
           buildings++;
           mostQueued = Math.max(mostQueued, world.trainLength[slot]!);
@@ -44,7 +50,11 @@ describe('determinism', () => {
     expect(new Set(hashes).size).toBeGreaterThan(TICKS - 30);
     expect(replay.commands.length).toBeGreaterThan(100);
     expect(replay.commands.some((c) => c.command.kind === 'move' && c.command.queue === true)).toBe(true);
-    for (const kind of ['gather', 'deliver', 'build', 'construct', 'train', 'cancelTrain', 'rally', 'demolish'] as const) {
+    const kinds = [
+      'gather', 'deliver', 'build', 'construct', 'train', 'cancelTrain', 'rally', 'demolish',
+      'attack', 'attackMove', 'patrol', 'hold', 'stop',
+    ] as const;
+    for (const kind of kinds) {
       expect(replay.commands.some((c) => c.command.kind === kind), kind).toBe(true);
     }
     expect(session.world.livingEntities().length).toBeGreaterThan(20);
@@ -55,6 +65,14 @@ describe('determinism', () => {
     expect(mostQueued).toBeGreaterThan(0);
     const { spent } = session.world;
     expect(spent[0]! + spent[4]!).toBeGreaterThan(0); // food, on units
+    // Soldiers fought, arrows flew, and some of both sides did not come back.
+    expect(fighting).toBeGreaterThan(3000);
+    expect(striking).toBeGreaterThan(1000);
+    expect(arrows).toBeGreaterThan(200);
+    const { generation, highWater } = session.world;
+    let deaths = 0;
+    for (let slot = 0; slot < highWater; slot++) deaths += generation[slot]!;
+    expect(deaths).toBeGreaterThan(5);
   });
 
   it('never leaves a unit in an obstacle or a group miscounted', () => {
@@ -158,7 +176,7 @@ describe('determinism', () => {
     // deliberate, update the value here and in scripts/browser-check.mjs; old
     // replays will no longer play back.
     const { hashes } = playRandomMatch(config, 77, TICKS);
-    expect(hashHex(hashes[TICKS - 1]!)).toBe('3ce18c53');
+    expect(hashHex(hashes[TICKS - 1]!)).toBe('2002f998');
   });
 });
 

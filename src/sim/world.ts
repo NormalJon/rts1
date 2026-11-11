@@ -13,7 +13,7 @@ import type { GameMap } from './map';
 import { buildMap, type MapSpec } from './mapgen';
 import { Rng } from './rng';
 import { SearchScratch, type Search } from './search';
-import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, TRAIN_QUEUE_LENGTH } from './entityTypes';
+import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, siteHp, TRAIN_QUEUE_LENGTH } from './entityTypes';
 import { perSecondToPerTick } from './units';
 
 export interface SimConfig {
@@ -21,6 +21,12 @@ export interface SimConfig {
   readonly tickRate: number;
   readonly seed: number;
   readonly playerCount: number;
+  /**
+   * Which side each player is on. Players with the same number are allies and
+   * do not fight each other. Players past the end of the list are each on
+   * their own side, so an empty list is a free-for-all.
+   */
+  readonly teams: readonly number[];
   /** Map size in tiles. */
   readonly mapWidth: number;
   readonly mapHeight: number;
@@ -45,12 +51,13 @@ export function defaultConfig(overrides: Partial<SimConfig> = {}): SimConfig {
     tickRate: DEFAULT_TICK_RATE,
     seed: 1,
     playerCount: 2,
+    teams: [],
     mapWidth: 64,
     mapHeight: 64,
     map: { kind: 'flat' },
     start: 'empty',
     maxEntities: 8192,
-    pathBudget: 30000,
+    pathBudget: 10000,
     ...overrides,
   };
 }
@@ -104,6 +111,25 @@ export const Job = {
   Constructing: 5,
 } as const;
 
+/**
+ * What a unit has been told to do, which decides how it treats enemies.
+ * A unit with no orders guards the spot where it stands.
+ */
+export const OrderKind = {
+  /** Guarding its post: fights what comes near, then goes back. */
+  None: 0,
+  /** Going where it was sent and ignoring everything on the way. */
+  Move: 1,
+  /** Going where it was sent, fighting whatever it meets, then carrying on. */
+  AttackMove: 2,
+  /** Walking to and fro between two points, fighting whatever it meets. */
+  Patrol: 3,
+  /** After one particular enemy. */
+  AttackTarget: 4,
+  /** Standing its ground: strikes at what comes within reach but never gives chase. */
+  Hold: 5,
+} as const;
+
 export const STARTING_VILLAGERS = 6;
 const STARTING_STOCK = [200, 200, 0, 100]; // food, wood, stone, gold
 
@@ -144,6 +170,9 @@ export interface ActiveSearch {
   readonly targets: readonly number[];
   readonly search: Search;
 }
+
+/** Numbers per arrow in World.shots: from x, from y, source, target, damage, tick loosed, tick it lands. */
+export const SHOT_FIELDS = 7;
 
 export type Column = Int32Array | Uint16Array | Uint8Array;
 
@@ -224,6 +253,34 @@ export class World {
   readonly carryKind: Uint8Array;
   readonly carry: Int32Array;
 
+  /** Hit points left. */
+  readonly hp: Int32Array;
+  /** How it is to treat enemies (see OrderKind), and the same for each order waiting in its queue. */
+  readonly orderKind: Uint8Array;
+  readonly queueKind: Uint8Array;
+  /** The enemy it is after, or NO_ENTITY, and whether it has broken off what it was doing to fight. */
+  readonly target: Int32Array;
+  readonly engaged: Uint8Array;
+  /**
+   * Where a unit goes back to when the fighting is over: its post, or the
+   * place it was marching to, with the shared order it was marching under.
+   */
+  readonly homeX: Int32Array;
+  readonly homeY: Int32Array;
+  readonly homeGroup: Int32Array;
+  /** Patrols: the far end of the beat. */
+  readonly otherX: Int32Array;
+  readonly otherY: Int32Array;
+  /** Ticks until the blow now being struck lands, and until another can be started. */
+  readonly windup: Uint16Array;
+  readonly cooldown: Uint16Array;
+  /** 1 while it is planted in front of an enemy, trading blows. Comrades go round it. */
+  readonly rooted: Uint8Array;
+  /** Times it has come to a halt short of its target. */
+  readonly chaseTries: Uint8Array;
+  /** Riders: ticks of unbroken running, which is what makes a charge. */
+  readonly momentum: Uint16Array;
+
   /** Buildings: 1 once construction is finished, and the work done toward that. */
   readonly built: Uint8Array;
   readonly buildPoints: Int32Array;
@@ -242,6 +299,18 @@ export class World {
   readonly stock: Int32Array;
   /** What each player has spent on units and buildings, less refunds, laid out like the stockpile. */
   readonly spent: Int32Array;
+  /** Resources that were on the backs of villagers when they were killed, by kind. */
+  readonly lost: Int32Array;
+  /** Which side each player is on. */
+  readonly team: Uint8Array;
+
+  /**
+   * Arrows in the air. Each is a row of SHOT_FIELDS numbers: where it was
+   * loosed from, who loosed it, whom it will hit, how hard, and the ticks it
+   * left and lands on. An arrow always finds its target if the target lives.
+   */
+  shots: Int32Array;
+  shotCount = 0;
 
   /** Waypoints (x, y pairs) for units following their own path. */
   readonly paths: (Int32Array | undefined)[] = [];
@@ -260,6 +329,11 @@ export class World {
   readonly scratchFlags: Uint8Array;
   /** How many villagers have worked on each building site so far this tick. */
   readonly scratchBuilders: Uint16Array;
+  /** Damage dealt to each entity so far this tick, taken off all at once so that two who strike together both land. */
+  readonly scratchDamage: Int32Array;
+  /** The slots of this tick's buildings. */
+  readonly scratchBuildings: Int32Array;
+  scratchBuildingCount = 0;
   readonly cellStart: Int32Array;
   readonly cellItems: Int32Array;
 
@@ -324,6 +398,21 @@ export class World {
     this.jobTarget = this.column('jobTarget', new Int32Array(n));
     this.carryKind = this.column('carryKind', new Uint8Array(n));
     this.carry = this.column('carry', new Int32Array(n));
+    this.hp = this.column('hp', new Int32Array(n));
+    this.orderKind = this.column('orderKind', new Uint8Array(n));
+    this.queueKind = this.column('queueKind', new Uint8Array(n * q), q);
+    this.target = this.column('target', new Int32Array(n));
+    this.engaged = this.column('engaged', new Uint8Array(n));
+    this.homeX = this.column('homeX', new Int32Array(n));
+    this.homeY = this.column('homeY', new Int32Array(n));
+    this.homeGroup = this.column('homeGroup', new Int32Array(n));
+    this.otherX = this.column('otherX', new Int32Array(n));
+    this.otherY = this.column('otherY', new Int32Array(n));
+    this.windup = this.column('windup', new Uint16Array(n));
+    this.cooldown = this.column('cooldown', new Uint16Array(n));
+    this.rooted = this.column('rooted', new Uint8Array(n));
+    this.chaseTries = this.column('chaseTries', new Uint8Array(n));
+    this.momentum = this.column('momentum', new Uint16Array(n));
     this.built = this.column('built', new Uint8Array(n));
     this.buildPoints = this.column('buildPoints', new Int32Array(n));
     this.trainQueue = this.column('trainQueue', new Uint8Array(n * TRAIN_QUEUE_LENGTH), TRAIN_QUEUE_LENGTH);
@@ -335,6 +424,14 @@ export class World {
     this.rallyTile = this.column('rallyTile', new Int32Array(n));
     this.stock = new Int32Array(config.playerCount * RESOURCE_COUNT);
     this.spent = new Int32Array(config.playerCount * RESOURCE_COUNT);
+    this.lost = new Int32Array(RESOURCE_COUNT);
+    this.team = new Uint8Array(config.playerCount);
+    for (let player = 0; player < config.playerCount; player++) {
+      const side = config.teams[player];
+      // Sides named in the list are numbered from 0; everyone else gets a side to themselves above those.
+      this.team[player] = side === undefined ? 128 + player : side & 127;
+    }
+    this.shots = new Int32Array(64 * SHOT_FIELDS);
 
     this.searchScratch = new SearchScratch(this.map.tileCount);
     this.scratchX = new Int32Array(n);
@@ -343,6 +440,8 @@ export class World {
     this.scratchPushY = new Int32Array(n);
     this.scratchFlags = new Uint8Array(n);
     this.scratchBuilders = new Uint16Array(n);
+    this.scratchDamage = new Int32Array(n);
+    this.scratchBuildings = new Int32Array(n);
     // The neighbour grid uses cells two tiles across.
     const cells = ((this.map.width + 1) >> 1) * ((this.map.height + 1) >> 1);
     this.cellStart = new Int32Array(cells + 1);
@@ -399,6 +498,7 @@ export class World {
     this.alive[slot] = 1;
     this.jobTile[slot] = -1;
     this.jobTarget[slot] = NO_ENTITY;
+    this.target[slot] = NO_ENTITY;
     this.rallyX[slot] = -1;
     this.rallyY[slot] = -1;
     this.rallyTile[slot] = -1;
@@ -427,6 +527,9 @@ export class World {
     this.dirY[slot] = ONE;
     this.speed[slot] = perSecondToPerTick(type.speed, this.config.tickRate);
     this.radius[slot] = type.radius;
+    this.hp[slot] = type.hp;
+    this.homeX[slot] = x;
+    this.homeY[slot] = y;
     return this.idAt(slot);
   }
 
@@ -450,6 +553,9 @@ export class World {
     if (finished) {
       this.built[slot] = 1;
       this.buildPoints[slot] = buildPointsNeeded(entityType, this.config.tickRate);
+      this.hp[slot] = type.hp;
+    } else {
+      this.hp[slot] = siteHp(entityType);
     }
     const half = type.footprint >> 1;
     this.map.setBuilding(tileX - half, tileY - half, type.footprint, true);
@@ -460,6 +566,11 @@ export class World {
     if (!this.isAlive(id)) return;
     const slot = entityIndex(id);
     this.clearOrders(slot);
+    // Whatever a villager was carrying goes with it.
+    if (this.carry[slot]! > 0) {
+      this.lost[this.carryKind[slot]!] = this.lost[this.carryKind[slot]!]! + this.carry[slot]!;
+      this.carry[slot] = 0;
+    }
     const type = ENTITY_TYPES[this.entityType[slot]!]!;
     if (type.building) {
       const half = type.footprint >> 1;
@@ -544,22 +655,65 @@ export class World {
     if (--group.refs <= 0) this.groups.delete(id);
   }
 
-  /** Forgets a unit's current and queued orders. It stays where it is. */
+  /**
+   * Forgets a unit's current and queued orders, and any fight it is in. It
+   * stays where it is, guarding the spot.
+   */
   clearOrders(slot: number): void {
     this.releaseGroup(this.group[slot]!);
     this.group[slot] = 0;
+    this.releaseGroup(this.homeGroup[slot]!);
+    this.homeGroup[slot] = 0;
     const base = slot * ORDER_QUEUE_LENGTH;
     for (let k = 0; k < this.queueLength[slot]!; k++) this.releaseGroup(this.queueGroup[base + k]!);
     this.queueLength[slot] = 0;
+    this.orderKind[slot] = OrderKind.None;
+    this.target[slot] = NO_ENTITY;
+    this.engaged[slot] = 0;
+    this.windup[slot] = 0;
+    this.rooted[slot] = 0;
+    this.chaseTries[slot] = 0;
+    this.standStill(slot);
+    this.homeX[slot] = this.posX[slot]!;
+    this.homeY[slot] = this.posY[slot]!;
+  }
+
+  /** Stops a unit in its tracks without touching its orders: it stands where it is until told otherwise. */
+  standStill(slot: number): void {
     this.paths[slot] = undefined;
     this.pathIndex[slot] = 0;
     this.stuck[slot] = 0;
     this.retries[slot] = 0;
-    // Any route still being worked out for the old order is now out of date.
+    // Any route still being worked out for it is now out of date.
     this.orderSeq[slot] = (this.orderSeq[slot]! + 1) | 0;
     this.moveState[slot] = MoveState.Idle;
     this.goalX[slot] = this.posX[slot]!;
     this.goalY[slot] = this.posY[slot]!;
+  }
+
+  /** Whether two players are enemies. */
+  hostile(a: number, b: number): boolean {
+    return this.team[a] !== this.team[b];
+  }
+
+  // ---- Arrows ----------------------------------------------------------------
+
+  /** Looses an arrow that will hit `target` for `damage` when tick `lands` comes. */
+  addShot(fromX: Fixed, fromY: Fixed, source: EntityId, target: EntityId, damage: number, lands: number): void {
+    const at = this.shotCount * SHOT_FIELDS;
+    if (at + SHOT_FIELDS > this.shots.length) {
+      const bigger = new Int32Array(this.shots.length * 2);
+      bigger.set(this.shots);
+      this.shots = bigger;
+    }
+    this.shots[at] = fromX;
+    this.shots[at + 1] = fromY;
+    this.shots[at + 2] = source;
+    this.shots[at + 3] = target;
+    this.shots[at + 4] = damage;
+    this.shots[at + 5] = this.tick;
+    this.shots[at + 6] = lands;
+    this.shotCount++;
   }
 
   // ---- Stores ----------------------------------------------------------------
