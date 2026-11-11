@@ -146,13 +146,21 @@ export class GameMap {
 
   /** Marks a square of tiles as built on, or clears it again. */
   setBuilding(left: number, top: number, size: number, present: boolean): void {
+    const want = present ? 1 : 0;
     for (let ty = top; ty < top + size; ty++) {
       for (let tx = left; tx < left + size; tx++) {
         if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) continue;
-        this.blocked[ty * this.width + tx] = present ? 1 : 0;
+        const tile = ty * this.width + tx;
+        if (this.blocked[tile] === want) continue;
+        this.stateHash = (this.stateHash - this.tileHash(tile)) | 0;
+        this.blocked[tile] = want;
+        this.passable[tile] = want === 0 ? (PASSABLE_BY_TERRAIN[this.terrain[tile]!] ?? 0) : 0;
+        this.stateHash = (this.stateHash + this.tileHash(tile)) | 0;
       }
     }
-    this.rebuild();
+    // A building can cut one area in two, or its removal join two up, so the regions are worked out afresh.
+    this.passVersion++;
+    this.labelRegions();
   }
 
   /** Replaces the changeable state wholesale, as when loading a saved game. */

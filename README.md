@@ -1,15 +1,15 @@
 # Medieval RTS (working title)
 
 A historical real-time strategy game covering roughly 800–1600 CE. This
-repository holds the first three steps of the core build: the deterministic
+repository holds the first four steps of the core build: the deterministic
 simulation loop; maps, pathfinding and unit movement with a 3D view to play
-it in; then resources, gathering and the town centre.
+it in; resources and gathering; then buildings, training and population.
 
 ## Commands
 
 ```bash
 npm install
-npm test               # maths, maps, pathfinding, movement, economy, determinism, source rules
+npm test               # maths, maps, pathfinding, movement, economy, buildings, determinism, source rules
 npm run typecheck
 npm run dev            # pages at http://localhost:5173
 npm run build          # writes dist/playtest.html and dist/tick-rate-lab.html
@@ -61,8 +61,17 @@ npm run check:browser  # reference match must give the same checksum in a browse
   on. `GameMap` keeps passability, connected regions and a running state
   checksum up to date change by change, and a route search in progress starts
   over when the map changes under it.
+- **Buildings.** Villagers found a building on open grass
+  (`src/sim/buildings.ts`); it is paid for at once and blocks its ground from
+  then on. Building is work done at the site (`src/sim/economy.ts`). When one
+  goes up, routes laid across that ground are re-planned
+  (`routesAfterObstacle` in `src/sim/routing.ts`).
+- **Training and population.** Buildings train units from a queue
+  (`src/sim/production.ts`). A unit is paid for when queued and waits for room
+  in the population, which finished town centres and houses provide.
 - **Entity types.** `src/sim/entityTypes.ts` is the one table of units and
-  buildings: speed, size, carrying capacity, footprint.
+  buildings: cost, time, speed, size, carrying capacity, footprint, what a
+  building trains, houses and takes in.
 
 ## Rules for code in `src/sim`
 
