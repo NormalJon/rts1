@@ -59,6 +59,23 @@
     }
   },
   {
+    "id": "hall",
+    "group": "buildings",
+    "label": "Great hall",
+    "note": "Timber hall of a lord or village, c. 900: plank walls, steep thatch, crossed gable boards. Town centre on a 5 by 5 tile plot.",
+    "file": "models/hall.glb",
+    "triangles": 1409,
+    "bytes": 110100,
+    "yaw": -0.6,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
     "id": "keep",
     "group": "buildings",
     "label": "Stone keep",
@@ -169,6 +186,57 @@
     "triangles": 112,
     "bytes": 13248,
     "yaw": 0.3,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "berry-bush",
+    "group": "resources",
+    "label": "Berry bush",
+    "note": "Bramble thicket with fruit ripening from red to black. Neutral, so no team colour.",
+    "file": "models/berry-bush.glb",
+    "triangles": 289,
+    "bytes": 34112,
+    "yaw": 0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "stone-deposit",
+    "group": "resources",
+    "label": "Stone deposit",
+    "note": "Pale building stone split into blocks and slabs. One tile; neighbours run together into an outcrop.",
+    "file": "models/stone-deposit.glb",
+    "triangles": 96,
+    "bytes": 8728,
+    "yaw": 0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "gold-deposit",
+    "group": "resources",
+    "label": "Gold deposit",
+    "note": "Dark host rock shot through with seams of gold. The same one-tile module as the stone.",
+    "file": "models/gold-deposit.glb",
+    "triangles": 157,
+    "bytes": 13376,
+    "yaw": 0.5,
     "clips": [],
     "validator": {
       "errors": 0,

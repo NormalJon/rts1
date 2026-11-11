@@ -216,7 +216,8 @@ export class MeshBuilder {
 }
 
 const icoCache = new Map();
-function icosphere(detail) {
+/** Unit icosphere: { verts, faces }. Exported for models that need to know a blob's facets. */
+export function icosphere(detail) {
   if (icoCache.has(detail)) return icoCache.get(detail);
   const t = (1 + Math.sqrt(5)) / 2;
   let verts = [

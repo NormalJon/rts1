@@ -33,4 +33,13 @@ export const C = {
   wool: '#7a5d42',
   rope: '#bfa873',
   pole: '#6b5138',
+  bushLo: '#2f5230',
+  bushHi: '#5f8a43',
+  berry: '#b22a3a',
+  berryRipe: '#3b2647',
+  ore: '#5c564e',
+  oreLight: '#6f685e',
+  oreDark: '#48433d',
+  gold: '#d6a62c',
+  goldLight: '#ecc752',
 };

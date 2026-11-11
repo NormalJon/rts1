@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { writeGLB } from './glb.mjs';
 import { build as house } from './models/house.mjs';
+import { build as hall } from './models/hall.mjs';
 import { build as keep } from './models/keep.mjs';
 import { buildWall, buildGate } from './models/palisade.mjs';
 import { build as watchtower } from './models/watchtower.mjs';
@@ -12,6 +13,8 @@ import { buildOak, buildConifer } from './models/trees.mjs';
 import { build as trebuchet } from './models/trebuchet.mjs';
 import { build as spearman } from './models/spearman.mjs';
 import { build as villager } from './models/villager.mjs';
+import { build as berryBush } from './models/bush.mjs';
+import { buildStone, buildGold } from './models/deposits.mjs';
 
 const require = createRequire(import.meta.url);
 const validator = require('gltf-validator');
@@ -21,8 +24,9 @@ mkdirSync(out, { recursive: true });
 
 const GROUPS = [
   { key: 'units', title: 'Units', blurb: 'Ten rigid parts on a joint hierarchy, animated by rotating the joints. Nothing bends: there is no skinning.', builders: [spearman, villager] },
-  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, keep, watchtower, buildGate, buildWall, trebuchet] },
+  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, hall, keep, watchtower, buildGate, buildWall, trebuchet] },
   { key: 'nature', title: 'Trees', blurb: 'Neutral map objects, so they carry no team colour.', builders: [buildOak, buildConifer] },
+  { key: 'resources', title: 'Resources', blurb: 'What villagers gather. Each fits one 2 m tile and carries no team colour.', builders: [berryBush, buildStone, buildGold] },
 ];
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -58,7 +62,7 @@ for (const group of GROUPS) {
     };
     manifest.push(entry);
     glbData[model.id] = glb.toString('base64');
-    console.log(`${model.id.padEnd(11)} ${String(triangles).padStart(5)} tris  ${(glb.length / 1024).toFixed(1).padStart(6)} KB  validator: ${numErrors}E ${numWarnings}W ${numInfos}I ${numHints}H`);
+    console.log(`${model.id.padEnd(13)} ${String(triangles).padStart(5)} tris  ${(glb.length / 1024).toFixed(1).padStart(6)} KB  validator: ${numErrors}E ${numWarnings}W ${numInfos}I ${numHints}H`);
   }
 }
 writeFileSync(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
