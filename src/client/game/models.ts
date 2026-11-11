@@ -40,6 +40,20 @@ export interface UnitModel {
 
 export interface StaticModel {
   readonly parts: readonly (ModelPart & { readonly matrix: THREE.Matrix4 })[];
+  /** How far the model reaches from its centre along the ground, in metres. */
+  readonly reach: number;
+}
+
+/** The furthest any part of a model gets from the vertical axis through its origin, measured along X or Z. */
+function reachOf(parts: StaticModel['parts']): number {
+  const box = new THREE.Box3();
+  let reach = 0;
+  for (const part of parts) {
+    part.geometry.computeBoundingBox();
+    box.copy(part.geometry.boundingBox!).applyMatrix4(part.matrix);
+    reach = Math.max(reach, Math.abs(box.min.x), Math.abs(box.max.x), Math.abs(box.min.z), Math.abs(box.max.z));
+  }
+  return reach;
 }
 
 export interface Models {
@@ -115,33 +129,40 @@ async function loadUnit(name: string, clipNames: readonly string[]): Promise<Uni
 function standIn(colour: string, width: number, height: number, team = false): StaticModel {
   const geometry = new THREE.BoxGeometry(width, height, width).translate(0, height / 2, 0);
   const material = new THREE.MeshLambertMaterial({ color: new THREE.Color(colour) });
-  return { parts: [{ geometry, material, team, matrix: new THREE.Matrix4() }] };
+  const parts = [{ geometry, material, team, matrix: new THREE.Matrix4() }];
+  return { parts, reach: reachOf(parts) };
 }
 
 async function loadStatic(name: string, fallback?: () => StaticModel): Promise<StaticModel> {
   if (fallback !== undefined && window.__MODELS?.[name] === undefined) return fallback();
   const gltf = await parse(name);
   gltf.scene.updateMatrixWorld(true);
-  return {
-    parts: meshesOf(gltf.scene).map((mesh) => ({ ...partOf(mesh), matrix: mesh.matrixWorld.clone() })),
-  };
+  const parts = meshesOf(gltf.scene).map((mesh) => ({ ...partOf(mesh), matrix: mesh.matrixWorld.clone() }));
+  return { parts, reach: reachOf(parts) };
 }
 
 export async function loadModels(): Promise<Models> {
-  const [spearman, villager, hall, oak, conifer, berries, stone, gold] = await Promise.all([
-    loadUnit('spearman', ['idle', 'walk']),
-    loadUnit('villager', ['idle', 'walk', 'chop']),
-    loadStatic('hall', () => standIn('#8a6a45', 9, 4, true)),
-    loadStatic('oak'),
-    loadStatic('conifer'),
-    loadStatic('berry-bush', () => standIn('#4d7a3a', 1.4, 0.9)),
-    loadStatic('stone-deposit', () => standIn('#a9a7a0', 1.7, 1.2)),
-    loadStatic('gold-deposit', () => standIn('#c9a227', 1.7, 1.2)),
-  ]);
-  // In the order of the simulation's ENTITY_TYPES: spearman, villager, town centre.
+  const [spearman, villager, hall, house, mill, lumberCamp, miningCamp, barracks, oak, conifer, berries, stone, gold] =
+    await Promise.all([
+      loadUnit('spearman', ['idle', 'walk']),
+      loadUnit('villager', ['idle', 'walk', 'chop']),
+      loadStatic('hall', () => standIn('#8a6a45', 9, 4, true)),
+      loadStatic('house', () => standIn('#b89b6a', 5, 3, true)),
+      loadStatic('mill', () => standIn('#c9b458', 5, 3.4, true)),
+      loadStatic('lumber-camp', () => standIn('#7a5a3a', 5, 2.4, true)),
+      loadStatic('mining-camp', () => standIn('#8f8f96', 5, 2.4, true)),
+      loadStatic('barracks', () => standIn('#7d4a3a', 9, 3.6, true)),
+      loadStatic('oak'),
+      loadStatic('conifer'),
+      loadStatic('berry-bush', () => standIn('#4d7a3a', 1.4, 0.9)),
+      loadStatic('stone-deposit', () => standIn('#a9a7a0', 1.7, 1.2)),
+      loadStatic('gold-deposit', () => standIn('#c9a227', 1.7, 1.2)),
+    ]);
+  // In the order of the simulation's ENTITY_TYPES:
+  // spearman, villager, town centre, house, mill, lumber camp, mining camp, barracks.
   return {
-    units: [spearman, villager, undefined],
-    buildings: [undefined, undefined, hall],
+    units: [spearman, villager],
+    buildings: [undefined, undefined, hall, house, mill, lumberCamp, miningCamp, barracks],
     oak,
     conifer,
     berries,

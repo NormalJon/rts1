@@ -7,7 +7,7 @@
  */
 
 import * as THREE from 'three';
-import { ENTITY_TYPES, resourceOfTerrain } from '../../sim/entityTypes';
+import { buildPointsNeeded, ENTITY_TYPES, resourceOfTerrain } from '../../sim/entityTypes';
 import { toFloat } from '../../sim/fixed';
 import { Terrain } from '../../sim/map';
 import { Job, type EntityId, type World } from '../../sim/world';
@@ -111,7 +111,16 @@ export class GameView {
   private readonly seenTerrain: Uint8Array;
   /** The tree, bush or outcrop standing on each resource tile. */
   private readonly propOfTile = new Map<number, { readonly meshes: THREE.InstancedMesh[]; readonly index: number }>();
-  private readonly buildings = new Map<number, { readonly id: EntityId; readonly group: THREE.Group }>();
+  private readonly buildings = new Map<
+    number,
+    { readonly id: EntityId; readonly group: THREE.Group; readonly model: THREE.Group; readonly plot: THREE.Mesh }
+  >();
+  /** The plot shown under the pointer while choosing where to build. */
+  private readonly ghost: THREE.Mesh;
+  /** The outline round the selected building, and the flag at its rally point. */
+  private readonly outline: THREE.LineLoop;
+  private readonly flag: THREE.Group;
+  private selectedBuilding: EntityId | null = null;
 
   // Per-unit display state, by slot.
   private readonly prevX: Float32Array;
@@ -174,6 +183,44 @@ export class GameView {
     }
     this.shadows.renderOrder = 1;
     this.rings.renderOrder = 2;
+
+    this.ghost = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false }),
+    );
+    this.ghost.visible = false;
+    this.ghost.renderOrder = 5;
+    this.scene.add(this.ghost);
+
+    this.outline = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-0.5, 0, -0.5),
+        new THREE.Vector3(0.5, 0, -0.5),
+        new THREE.Vector3(0.5, 0, 0.5),
+        new THREE.Vector3(-0.5, 0, 0.5),
+      ]),
+      new THREE.LineBasicMaterial({ color: 0xf4f1e4 }),
+    );
+    this.outline.visible = false;
+    this.scene.add(this.outline);
+
+    // A pole with a pennant, for the rally point.
+    this.flag = new THREE.Group();
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6).translate(0, 1.2, 0),
+      new THREE.MeshLambertMaterial({ color: 0x6b4a2b }),
+    );
+    const pennant = new THREE.Mesh(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 2.4, 0),
+        new THREE.Vector3(0.95, 2.1, 0),
+        new THREE.Vector3(0, 1.8, 0),
+      ]),
+      new THREE.MeshBasicMaterial({ color: 0xf4f1e4, side: THREE.DoubleSide }),
+    );
+    this.flag.add(pole, pennant);
+    this.flag.visible = false;
+    this.scene.add(this.flag);
 
     models.units.forEach((model, type) => {
       if (model === undefined) return;
@@ -432,28 +479,86 @@ export class GameView {
       this.buildings.delete(slot);
     }
     for (let slot = 0; slot < world.highWater; slot++) {
-      if (world.alive[slot] === 0 || world.mobile[slot] === 1 || this.buildings.has(slot)) continue;
-      const model = this.models.buildings[world.entityType[slot]!];
-      if (model === undefined) continue;
-      const team = this.teamLinear[world.owner[slot]! % this.teamLinear.length]!;
-      const group = new THREE.Group();
-      for (const part of model.parts) {
-        let material = part.material;
-        if (part.team) {
-          material = part.material.clone();
-          (material as THREE.MeshStandardMaterial).color.copy(team);
+      if (world.alive[slot] === 0 || world.mobile[slot] === 1) continue;
+      let shown = this.buildings.get(slot);
+      if (shown === undefined) {
+        const source = this.models.buildings[world.entityType[slot]!];
+        if (source === undefined) continue;
+        const span = ENTITY_TYPES[world.entityType[slot]!]!.footprint * TILE;
+        const team = this.teamLinear[world.owner[slot]! % this.teamLinear.length]!;
+        const model = new THREE.Group();
+        for (const part of source.parts) {
+          let material = part.material;
+          if (part.team) {
+            material = part.material.clone();
+            (material as THREE.MeshStandardMaterial).color.copy(team);
+          }
+          const mesh = new THREE.Mesh(part.geometry, material);
+          mesh.matrixAutoUpdate = false;
+          mesh.matrix.copy(part.matrix);
+          model.add(mesh);
         }
-        const mesh = new THREE.Mesh(part.geometry, material);
-        mesh.matrixAutoUpdate = false;
-        mesh.matrix.copy(part.matrix);
-        group.add(mesh);
+        // A model too big for its plot is shrunk to fit it.
+        model.scale.setScalar(Math.min(1, (span * 0.49) / source.reach));
+        // Bare earth marks out the plot while the building goes up.
+        const plot = new THREE.Mesh(
+          new THREE.PlaneGeometry(span * 0.96, span * 0.96).rotateX(-Math.PI / 2),
+          new THREE.MeshLambertMaterial({ color: new THREE.Color('#8a7556'), transparent: true, opacity: 0.85, depthWrite: false }),
+        );
+        plot.position.y = 0.05;
+        plot.renderOrder = 1;
+        const group = new THREE.Group();
+        group.add(plot, model);
+        const x = toFloat(world.posX[slot]!);
+        const y = toFloat(world.posY[slot]!);
+        group.position.set(x * TILE, this.heightAt(x, y), y * TILE);
+        this.scene.add(group);
+        shown = { id: world.idAt(slot), group, model, plot };
+        this.buildings.set(slot, shown);
       }
+      // A building rises out of the ground as the work is done.
+      const finished = world.built[slot] === 1;
+      const done = finished ? 1 : world.buildPoints[slot]! / buildPointsNeeded(world.entityType[slot]!, world.config.tickRate);
+      const width = shown.model.scale.x;
+      shown.model.scale.y = width * (0.06 + 0.94 * done);
+      shown.plot.visible = !finished;
+    }
+
+    // The selected building's outline and rally flag.
+    const selected = this.selectedBuilding;
+    const live = selected !== null && world.isAlive(selected);
+    this.outline.visible = live;
+    this.flag.visible = false;
+    if (live) {
+      const slot = selected & 0xfffff;
+      const span = ENTITY_TYPES[world.entityType[slot]!]!.footprint * TILE + 0.5;
       const x = toFloat(world.posX[slot]!);
       const y = toFloat(world.posY[slot]!);
-      group.position.set(x * TILE, this.heightAt(x, y), y * TILE);
-      this.scene.add(group);
-      this.buildings.set(slot, { id: world.idAt(slot), group });
+      this.outline.position.set(x * TILE, this.heightAt(x, y) + 0.12, y * TILE);
+      this.outline.scale.set(span, 1, span);
+      if (world.rallyX[slot]! >= 0) {
+        const rx = toFloat(world.rallyX[slot]!);
+        const ry = toFloat(world.rallyY[slot]!);
+        this.flag.position.set(rx * TILE, this.heightAt(rx, ry), ry * TILE);
+        this.flag.visible = true;
+      }
     }
+  }
+
+  /** Marks a building as the one the player has selected, or none. */
+  selectBuilding(id: EntityId | null): void {
+    this.selectedBuilding = id;
+  }
+
+  /** Shows where a building would go, green if it can and red if it cannot. Pass null to hide it. */
+  showPlot(plot: { tileX: number; tileY: number; size: number; allowed: boolean } | null): void {
+    this.ghost.visible = plot !== null;
+    if (plot === null) return;
+    const x = plot.tileX + 0.5;
+    const y = plot.tileY + 0.5;
+    this.ghost.position.set(x * TILE, this.heightAt(x, y) + 0.15, y * TILE);
+    this.ghost.scale.set(plot.size * TILE, 1, plot.size * TILE);
+    (this.ghost.material as THREE.MeshBasicMaterial).color.set(plot.allowed ? '#9fdc6b' : '#e0584a');
   }
 
   /** The building standing on a tile, if any. */

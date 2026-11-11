@@ -32,7 +32,10 @@ const PAGES = {
     libraries: THREE_SCRIPTS,
     models: ['spearman', 'villager', 'oak', 'conifer'],
     // Used if present; the page shows plain blocks for any that are not built yet.
-    optionalModels: ['hall', 'berry-bush', 'stone-deposit', 'gold-deposit'],
+    optionalModels: [
+      'hall', 'house', 'mill', 'lumber-camp', 'mining-camp', 'barracks',
+      'berry-bush', 'stone-deposit', 'gold-deposit',
+    ],
   },
 };
 

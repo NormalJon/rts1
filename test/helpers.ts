@@ -93,7 +93,7 @@ export function playRandomMatch(
           unitType: randomUnitType(),
         });
       }
-      if (script.chance(1, 240)) {
+      if (script.chance(1, 320)) {
         session.issue(player, { kind: 'gather', units: randomGroup(player, true), tile: randomTile(player) });
       }
       const buildings = world.livingEntities(player).filter((id) => world.mobile[id & 0xfffff] === 0);
@@ -104,17 +104,17 @@ export function playRandomMatch(
       }
       // Building and training, as often badly as well: on trees, without the wood, in a full queue.
       const start = world.map.starts[player];
-      if (start !== undefined && script.chance(1, 260)) {
+      if (start !== undefined && script.chance(1, 200)) {
         session.issue(player, {
           kind: 'build',
-          units: randomGroup(player),
+          units: randomGroup(player, true),
           buildingType: script.nextInt(ENTITY_TYPES.length),
           tileX: (start.x >> 16) + script.nextInt(25) - 12,
           tileY: (start.y >> 16) + script.nextInt(25) - 12,
         });
       }
-      if (script.chance(1, 400)) {
-        session.issue(player, { kind: 'construct', units: randomGroup(player), target: randomBuilding() });
+      if (script.chance(1, 180)) {
+        session.issue(player, { kind: 'construct', units: randomGroup(player, true), target: randomBuilding() });
       }
       if (script.chance(1, 60)) {
         // Mostly something trainable; sometimes nonsense.

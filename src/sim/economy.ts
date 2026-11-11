@@ -100,7 +100,7 @@ export function assignConstruction(world: World, slot: number, site: EntityId): 
   if (!isSite(world, site, world.owner[slot]!) || !ENTITY_TYPES[world.entityType[slot]!]!.builds) return false;
   world.clearOrders(slot);
   world.clearJob(slot);
-  if (!walkToEdgeOf(world, slot, entityIndex(site))) return false;
+  if (!walkToEdgeOf(world, slot, entityIndex(site), true)) return false;
   world.jobTarget[slot] = site;
   world.job[slot] = Job.ToSite;
   return true;
@@ -231,11 +231,25 @@ function withinReachOf(world: World, slot: number, building: number): boolean {
 /**
  * Sends a unit to the nearest open tile on the ring just outside a building.
  * Returns false if there is none it can get to.
+ *
+ * @param spreadOut  For builders, who stay a while: prefer a tile no other
+ *   builder of this site is already heading for, so they work all round it
+ *   instead of queuing at one corner.
  */
-function walkToEdgeOf(world: World, slot: number, building: number): boolean {
+function walkToEdgeOf(world: World, slot: number, building: number, spreadOut = false): boolean {
   const { map } = world;
   const px = world.posX[slot]!;
   const py = world.posY[slot]!;
+  const crowd = new Map<number, number>();
+  if (spreadOut) {
+    const site = world.idAt(building);
+    for (let other = 0; other < world.highWater; other++) {
+      if (other === slot || world.alive[other] === 0 || world.jobTarget[other] !== site) continue;
+      if (world.job[other] !== Job.ToSite && world.job[other] !== Job.Constructing) continue;
+      const tile = map.tileAt(world.goalX[other]!, world.goalY[other]!);
+      crowd.set(tile, (crowd.get(tile) ?? 0) + 1);
+    }
+  }
   const region = map.region[map.tileAt(px, py)]!;
   const reach = (ENTITY_TYPES[world.entityType[building]!]!.footprint >> 1) + 1;
   const cx = world.posX[building]! >> 16;
@@ -251,7 +265,8 @@ function walkToEdgeOf(world: World, slot: number, building: number): boolean {
       if (!map.isPassable(tx, ty) || map.region[ty * map.width + tx] !== region) continue;
       const x = tx * ONE + HALF;
       const y = ty * ONE + HALF;
-      const distance = length(x - px, y - py);
+      // Each builder already bound for a tile makes it as unattractive as three more tiles of walking.
+      const distance = length(x - px, y - py) + (crowd.get(ty * map.width + tx) ?? 0) * 3 * ONE;
       if (bestDistance === -1 || distance < bestDistance) {
         bestX = x;
         bestY = y;
@@ -424,21 +439,26 @@ function build(world: World, slot: number): void {
   }
   const at = entityIndex(site);
   const near = withinReachOf(world, slot, at);
+  const arrived = world.moveState[slot] === MoveState.Idle;
   if (world.job[slot] === Job.ToSite) {
     if (near) {
-      // Close enough: down tools from walking and start work next tick.
-      world.clearOrders(slot);
+      // Close enough to start. It keeps walking to its place, so that it ends
+      // up standing well within reach and a nudge does not put it out of work.
       world.job[slot] = Job.Constructing;
       world.jobTries[slot] = 0;
-      face(world, slot, world.posX[at]!, world.posY[at]!);
-    } else if (world.moveState[slot] === MoveState.Idle) {
+    } else if (arrived) {
       retryOrQuit(world, slot, () => {
-        if (!walkToEdgeOf(world, slot, at)) stopWorking(world, slot);
+        if (!walkToEdgeOf(world, slot, at, true)) stopWorking(world, slot);
       });
     }
     return;
   }
-  if (!near) return;
+  if (arrived) face(world, slot, world.posX[at]!, world.posY[at]!);
+  if (!near) {
+    // Shoved out of reach and come to rest there: walk back.
+    if (arrived && !walkToEdgeOf(world, slot, at, true)) stopWorking(world, slot);
+    return;
+  }
   // The first builder to reach a site each tick does the most; each helper adds a little.
   const points = world.scratchBuilders[at] === 0 ? LONE_BUILDER_POINTS : 1;
   world.scratchBuilders[at] = world.scratchBuilders[at]! + 1;

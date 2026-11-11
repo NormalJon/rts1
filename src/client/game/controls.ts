@@ -1,11 +1,21 @@
 /**
- * Mouse, keyboard and touch: choosing units and telling them what to do.
+ * Mouse, keyboard and touch: choosing units and buildings and telling them
+ * what to do.
  *
- * Which units are selected is the player's own business and never enters the
+ * What is selected is the player's own business and never enters the
  * simulation. Orders do, as commands through the session.
  */
 
-import { ENTITY_TYPES, resourceOfTerrain } from '../../sim/entityTypes';
+import { canPlace } from '../../sim/buildings';
+import {
+  buildPointsNeeded,
+  ENTITY_TYPES,
+  RESOURCE_NAMES,
+  resourceOfTerrain,
+  TRAIN_QUEUE_LENGTH,
+  trainingTicks,
+} from '../../sim/entityTypes';
+import { countPopulation } from '../../sim/production';
 import { fromFloat } from '../../sim/units';
 import { entityIndex, Job, MoveState, type EntityId } from '../../sim/world';
 import type { LocalSession } from '../../session/localSession';
@@ -15,14 +25,49 @@ const CLICK_SLOP = 5; // pixels the pointer may wander and still count as a clic
 const PICK_RADIUS = 26; // pixels around the pointer in which a unit can be clicked
 const DOUBLE_CLICK_MS = 320;
 const PAN_PER_SECOND = 1.5;
+const TOAST_MS = 2400;
+/** The keys for the buttons in the action row, left to right. */
+const ACTION_KEYS = ['q', 'w', 'e', 'r', 't', 'y'];
 
 const PLURALS: Record<string, string> = { spearman: 'spearmen', villager: 'villagers' };
 const RESOURCE_VERBS = ['Foraging', 'Felling', 'Quarrying', 'Mining'];
 const RESOURCE_SOURCES = ['Berry bush', 'Tree', 'Stone outcrop', 'Gold ore'];
-const RESOURCE_NAMES = ['food', 'wood', 'stone', 'gold'];
+
+const capital = (text: string): string => text[0]!.toUpperCase() + text.slice(1);
+
+/** A cost in words: "60 food, 20 wood". */
+function costText(cost: readonly number[]): string {
+  const parts = cost.flatMap((amount, r) => (amount > 0 ? [`${amount} ${RESOURCE_NAMES[r]}`] : []));
+  return parts.length > 0 ? parts.join(', ') : 'free';
+}
+
+export interface Hud {
+  readonly selection: HTMLElement;
+  readonly groups: HTMLElement;
+  readonly stop: HTMLButtonElement;
+  readonly idle: HTMLButtonElement;
+  /** Build or train buttons for whatever is selected. */
+  readonly actions: HTMLElement;
+  /** Units waiting to be trained at the selected building. */
+  readonly queue: HTMLElement;
+  readonly progress: HTMLElement;
+  readonly progressBar: HTMLElement;
+  readonly population: HTMLElement;
+  readonly toast: HTMLElement;
+  /** Everything the player has in training, at whichever building. */
+  readonly production: HTMLElement;
+}
 
 export class Controls {
   readonly selected = new Set<EntityId>();
+  /** The building being looked at. Only the player's own can be given orders. */
+  private building: EntityId | null = null;
+  /** A resource tile being looked at, or -1. */
+  private inspectedTile = -1;
+  /** The type of building being placed, while choosing where. */
+  private placing: number | null = null;
+  private pointer: { x: number; y: number } | null = null;
+
   private readonly groups: EntityId[][] = Array.from({ length: 10 }, () => []);
   private readonly keysDown = new Set<string>();
   private dragStart: { x: number; y: number; id: number } | null = null;
@@ -30,12 +75,16 @@ export class Controls {
   private lastClick = { time: 0, unit: -1 };
   private lastGroupKey = { time: 0, digit: -1 };
   private alpha = 1;
-  /** A resource tile or building the player has clicked on to look at, when no units are selected. */
-  private inspected: { tile: number } | { building: EntityId } | null = null;
   private idleCursor = 0;
   private idleShown = -1;
-  /** When the panel is next due a refresh. What villagers are doing changes without the player's say. */
+  /** When the panel is next due a refresh. Much of what it shows changes without the player's say. */
   private hudDue = 0;
+  /** What the action row was last built for, so it is only rebuilt when that changes. */
+  private actionsFor = '';
+  private queueFor = '';
+  private productionFor = '';
+  private groupsFor = '';
+  private toastUntil = 0;
 
   constructor(
     private readonly player: number,
@@ -43,17 +92,15 @@ export class Controls {
     private readonly view: GameView,
     private readonly canvas: HTMLCanvasElement,
     private readonly box: HTMLElement,
-    private readonly hud: {
-      readonly selection: HTMLElement;
-      readonly groups: HTMLElement;
-      readonly stop: HTMLButtonElement;
-      readonly idle: HTMLButtonElement;
-    },
+    private readonly hud: Hud,
   ) {
     canvas.addEventListener('pointerdown', (event) => this.pointerDown(event));
     canvas.addEventListener('pointermove', (event) => this.pointerMove(event));
     canvas.addEventListener('pointerup', (event) => this.pointerUp(event));
     canvas.addEventListener('pointercancel', () => this.cancelDrag());
+    canvas.addEventListener('pointerleave', () => {
+      this.pointer = null;
+    });
     canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     canvas.addEventListener(
       'wheel',
@@ -79,13 +126,79 @@ export class Controls {
       if (chip) this.recallGroup(Number(chip.dataset.group), false);
       canvas.focus();
     });
+    hud.actions.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-action]');
+      if (button && !button.disabled) this.act(Number(button.dataset.action));
+      canvas.focus();
+    });
+    hud.production.addEventListener('click', (event) => {
+      const row = (event.target as HTMLElement).closest<HTMLElement>('[data-building]');
+      if (row) {
+        const id = Number(row.dataset.building);
+        if (this.session.world.isAlive(id)) {
+          this.selectBuilding(id);
+          const slot = entityIndex(id);
+          this.view.lookAt(this.session.world.posX[slot]! / 65536, this.session.world.posY[slot]! / 65536);
+          this.refreshHud();
+        }
+      }
+      canvas.focus();
+    });
+    hud.queue.addEventListener('click', (event) => {
+      const chip = (event.target as HTMLElement).closest<HTMLElement>('[data-queued]');
+      if (chip && this.building !== null) {
+        this.session.issue(this.player, { kind: 'cancelTrain', building: this.building, index: Number(chip.dataset.queued) });
+        this.hudDue = performance.now() + 90;
+      }
+      canvas.focus();
+    });
     this.refreshHud();
+  }
+
+  // ---- What is selected --------------------------------------------------------
+
+  private clearSelection(): void {
+    this.selected.clear();
+    this.building = null;
+    this.inspectedTile = -1;
+    this.view.selectBuilding(null);
+  }
+
+  private selectUnits(ids: Iterable<EntityId>, add: boolean): void {
+    if (!add) this.clearSelection();
+    this.building = null;
+    this.inspectedTile = -1;
+    this.view.selectBuilding(null);
+    for (const id of ids) this.selected.add(id);
+  }
+
+  private selectBuilding(id: EntityId): void {
+    this.clearSelection();
+    this.building = id;
+    this.view.selectBuilding(id);
+  }
+
+  /** The selected building's slot if it belongs to the player, else -1. */
+  private ownBuilding(): number {
+    const { world } = this.session;
+    if (this.building === null || !world.isAlive(this.building)) return -1;
+    const slot = entityIndex(this.building);
+    return world.owner[slot] === this.player ? slot : -1;
+  }
+
+  private buildersSelected(): boolean {
+    const { world } = this.session;
+    for (const id of this.selected) {
+      if (ENTITY_TYPES[world.entityType[entityIndex(id)]!]!.builds) return true;
+    }
+    return false;
   }
 
   // ---- Pointer ---------------------------------------------------------------
 
   private pointerDown(event: PointerEvent): void {
     this.canvas.focus();
+    this.pointer = { x: event.clientX, y: event.clientY };
     if (event.button === 1) {
       event.preventDefault();
       this.panGrab = this.view.screenToGround(event.clientX, event.clientY);
@@ -93,15 +206,21 @@ export class Controls {
       return;
     }
     if (event.button === 2) {
-      this.orderAt(event.clientX, event.clientY, event.shiftKey);
+      if (this.placing !== null) this.stopPlacing();
+      else this.orderAt(event.clientX, event.clientY, event.shiftKey);
       return;
     }
     if (event.button !== 0) return;
+    if (this.placing !== null) {
+      this.placeAt(event.clientX, event.clientY, event.shiftKey);
+      return;
+    }
     this.dragStart = { x: event.clientX, y: event.clientY, id: event.pointerId };
     this.canvas.setPointerCapture(event.pointerId);
   }
 
   private pointerMove(event: PointerEvent): void {
+    this.pointer = { x: event.clientX, y: event.clientY };
     if (this.panGrab) {
       // Keep the grabbed patch of ground under the pointer.
       const now = this.view.screenToGround(event.clientX, event.clientY);
@@ -175,90 +294,102 @@ export class Controls {
     }
     const now = performance.now();
     if (best === null) {
-      // On a touch screen there is no right button, so a tap on open ground is the order.
-      if (touch && this.selected.size > 0) {
-        this.orderAt(x, y, false);
-      } else if (!add) {
-        this.selected.clear();
-        // Nothing to select here, but there may be something to look at.
-        const under = this.view.pick(x, y);
-        if (under?.kind === 'tile') this.inspected = { tile: under.tile };
-        else if (under?.kind === 'building') this.inspected = { building: under.id };
-        else this.inspected = null;
-      }
       this.lastClick = { time: 0, unit: -1 };
+      // On a touch screen there is no right button, so a tap away from any unit is the order.
+      if (touch && (this.selected.size > 0 || this.ownBuilding() !== -1)) {
+        this.orderAt(x, y, false);
+        return;
+      }
+      if (add) return;
+      // No unit here, but there may be a building to select or a resource to look at.
+      const under = this.view.pick(x, y);
+      this.clearSelection();
+      if (under?.kind === 'building') this.selectBuilding(under.id);
+      else if (under?.kind === 'tile') this.inspectedTile = under.tile;
       return;
     }
-    this.inspected = null;
     const { world } = this.session;
     const double = now - this.lastClick.time < DOUBLE_CLICK_MS && this.lastClick.unit === best.id;
     this.lastClick = { time: now, unit: best.id };
     if (double) {
       // Everyone of that kind in view.
       const kind = world.entityType[best.slot];
-      if (!add) this.selected.clear();
       const frame = this.canvas.getBoundingClientRect();
+      const alike: EntityId[] = [];
       for (const unit of this.ownUnitsOnScreen()) {
         const inView = unit.x >= frame.left && unit.x <= frame.right && unit.y >= frame.top && unit.y <= frame.bottom;
-        if (inView && world.entityType[unit.slot] === kind) this.selected.add(unit.id);
+        if (inView && world.entityType[unit.slot] === kind) alike.push(unit.id);
       }
+      this.selectUnits(alike, add);
       return;
     }
-    if (add) {
-      if (this.selected.has(best.id)) this.selected.delete(best.id);
-      else this.selected.add(best.id);
-    } else {
-      this.selected.clear();
-      this.selected.add(best.id);
-    }
+    if (add && this.selected.has(best.id)) this.selected.delete(best.id);
+    else this.selectUnits([best.id], add);
   }
 
   private selectInBox(x0: number, y0: number, x1: number, y1: number, add: boolean): void {
-    this.inspected = null;
     const left = Math.min(x0, x1);
     const right = Math.max(x0, x1);
     const top = Math.min(y0, y1);
     const bottom = Math.max(y0, y1);
-    if (!add) this.selected.clear();
+    const inside: EntityId[] = [];
     for (const unit of this.ownUnitsOnScreen()) {
-      if (unit.x >= left && unit.x <= right && unit.y >= top && unit.y <= bottom) this.selected.add(unit.id);
+      if (unit.x >= left && unit.x <= right && unit.y >= top && unit.y <= bottom) inside.push(unit.id);
     }
+    this.selectUnits(inside, add);
   }
 
   // ---- Orders ----------------------------------------------------------------
 
   /**
-   * The right-click: whatever makes sense for what is under the pointer. On a
-   * tree, bush or deposit, gather from it; on your own town centre, hand in;
-   * anywhere else, go there.
+   * The right-click: whatever makes sense for what is selected and what is
+   * under the pointer. With units: gather from a tree, bush or deposit, work on
+   * one of your building sites, hand in at a drop-off, or go there. With one of
+   * your buildings: set where the units it trains will go.
    */
   private orderAt(clientX: number, clientY: number, queue: boolean): void {
     this.dropTheDead();
-    if (this.selected.size === 0) return;
     const { world } = this.session;
     const target = this.view.pick(clientX, clientY);
     if (target === null) return;
     // Show the result of the order as soon as the simulation has taken it up.
     this.hudDue = performance.now() + 90;
+    const spot =
+      target.kind === 'tile'
+        ? { x: (target.tile % world.map.width) + 0.5, y: Math.floor(target.tile / world.map.width) + 0.5 }
+        : target.kind === 'building'
+          ? { x: world.posX[entityIndex(target.id)]! / 65536, y: world.posY[entityIndex(target.id)]! / 65536 }
+          : target;
+
+    if (this.selected.size === 0) {
+      const own = this.ownBuilding();
+      if (own === -1 || target.kind === 'building') return;
+      this.session.issue(this.player, { kind: 'rally', buildings: [this.building!], x: fromFloat(spot.x), y: fromFloat(spot.y) });
+      this.view.addMarker(spot.x, spot.y, 'queue');
+      return;
+    }
+
     const units = [...this.selected];
     if (target.kind === 'tile' && resourceOfTerrain(world.map.terrain[target.tile]!) !== -1) {
       this.session.issue(this.player, { kind: 'gather', units, tile: target.tile });
-      this.view.addMarker((target.tile % world.map.width) + 0.5, Math.floor(target.tile / world.map.width) + 0.5, 'work');
+      this.view.addMarker(spot.x, spot.y, 'work');
       return;
     }
     if (target.kind === 'building') {
       const slot = entityIndex(target.id);
-      const x = world.posX[slot]! / 65536;
-      const y = world.posY[slot]! / 65536;
-      if (world.owner[slot] === this.player && world.built[slot] === 1 && ENTITY_TYPES[world.entityType[slot]!]!.accepts !== 0) {
+      const mine = world.owner[slot] === this.player;
+      if (mine && world.built[slot] === 0) {
+        this.session.issue(this.player, { kind: 'construct', units, target: target.id });
+        this.view.addMarker(spot.x, spot.y, 'work');
+      } else if (mine && ENTITY_TYPES[world.entityType[slot]!]!.accepts !== 0) {
         this.session.issue(this.player, { kind: 'deliver', units, target: target.id });
-        this.view.addMarker(x, y, 'work');
+        this.view.addMarker(spot.x, spot.y, 'work');
       } else {
-        this.order(x, y, queue);
+        this.order(spot.x, spot.y, queue);
       }
       return;
     }
-    if (target.kind === 'ground') this.order(target.x, target.y, queue);
+    this.order(spot.x, spot.y, queue);
   }
 
   /** Sends the selection to a place. With queue, as a waypoint after what they are already doing. */
@@ -293,8 +424,7 @@ export class Controls {
     const idle = this.idleVillagers();
     if (idle.length === 0) return;
     this.idleCursor = (this.idleCursor + 1) % idle.length;
-    this.selected.clear();
-    this.selected.add(idle[this.idleCursor]!);
+    this.selectUnits([idle[this.idleCursor]!], false);
     this.jumpToSelection();
     this.refreshHud();
   }
@@ -308,6 +438,124 @@ export class Controls {
   private dropTheDead(): void {
     const { world } = this.session;
     for (const id of this.selected) if (!world.isAlive(id)) this.selected.delete(id);
+    if (this.building !== null && !world.isAlive(this.building)) {
+      this.building = null;
+      this.view.selectBuilding(null);
+    }
+  }
+
+  // ---- Building and training ---------------------------------------------------
+
+  /** What the buttons in the action row do just now, left to right. */
+  private actions(): { label: string; detail: string; cost: readonly number[] | null; run: () => void }[] {
+    const { world } = this.session;
+    const own = this.ownBuilding();
+    if (own !== -1) {
+      const type = ENTITY_TYPES[world.entityType[own]!]!;
+      const list = world.built[own] === 1
+        ? type.trains.map((unitType) => ({
+            label: `Train ${ENTITY_TYPES[unitType]!.name}`,
+            detail: costText(ENTITY_TYPES[unitType]!.cost),
+            cost: ENTITY_TYPES[unitType]!.cost as readonly number[] | null,
+            run: () => this.train(unitType),
+          }))
+        : [];
+      list.push({
+        label: world.built[own] === 1 ? 'Pull down' : 'Cancel site',
+        detail: world.built[own] === 1 ? 'no refund' : `refunds ${costText(type.cost)}`,
+        cost: null,
+        run: () => this.demolish(),
+      });
+      return list;
+    }
+    if (this.buildersSelected()) {
+      return ENTITY_TYPES.flatMap((type, entityType) =>
+        type.building && type.buildable
+          ? [{ label: capital(type.name), detail: costText(type.cost), cost: type.cost, run: () => this.startPlacing(entityType) }]
+          : [],
+      );
+    }
+    return [];
+  }
+
+  private act(index: number): void {
+    this.actions()[index]?.run();
+    this.hudDue = performance.now() + 90;
+    this.refreshHud();
+  }
+
+  private train(unitType: number): void {
+    const { world } = this.session;
+    const own = this.ownBuilding();
+    if (own === -1) return;
+    const type = ENTITY_TYPES[unitType]!;
+    if (world.trainLength[own]! >= TRAIN_QUEUE_LENGTH) return this.toast('The queue is full');
+    if (!world.canAfford(this.player, type.cost)) return this.toast(`Not enough for a ${type.name}: ${costText(type.cost)}`);
+    this.session.issue(this.player, { kind: 'train', building: this.building!, unitType });
+  }
+
+  private demolish(): void {
+    if (this.ownBuilding() === -1) return;
+    this.session.issue(this.player, { kind: 'demolish', targets: [this.building!] });
+  }
+
+  private startPlacing(entityType: number): void {
+    const type = ENTITY_TYPES[entityType]!;
+    if (!this.session.world.canAfford(this.player, type.cost)) {
+      return this.toast(`Not enough for a ${type.name}: ${costText(type.cost)}`);
+    }
+    this.placing = entityType;
+  }
+
+  private stopPlacing(): void {
+    this.placing = null;
+    this.view.showPlot(null);
+    this.refreshHud();
+  }
+
+  /** The tile under a screen position and whether the building being placed can go there. */
+  private plotAt(clientX: number, clientY: number): { tileX: number; tileY: number; size: number; allowed: boolean } | null {
+    if (this.placing === null) return null;
+    const ground = this.view.screenToGround(clientX, clientY);
+    if (ground === null) return null;
+    const { world } = this.session;
+    const type = ENTITY_TYPES[this.placing]!;
+    const tileX = Math.floor(ground.x);
+    const tileY = Math.floor(ground.y);
+    const allowed = canPlace(world, this.placing, tileX, tileY) && world.canAfford(this.player, type.cost);
+    return { tileX, tileY, size: type.footprint, allowed };
+  }
+
+  private placeAt(clientX: number, clientY: number, keepPlacing: boolean): void {
+    const plot = this.plotAt(clientX, clientY);
+    if (plot === null || this.placing === null) return;
+    const { world } = this.session;
+    const type = ENTITY_TYPES[this.placing]!;
+    if (!plot.allowed) {
+      this.toast(
+        world.canAfford(this.player, type.cost)
+          ? 'It needs open, level grass: no trees, water, rock or buildings'
+          : `Not enough for a ${type.name}: ${costText(type.cost)}`,
+      );
+      return;
+    }
+    this.dropTheDead();
+    this.session.issue(this.player, {
+      kind: 'build',
+      units: [...this.selected],
+      buildingType: this.placing,
+      tileX: plot.tileX,
+      tileY: plot.tileY,
+    });
+    this.view.addMarker(plot.tileX + 0.5, plot.tileY + 0.5, 'work');
+    this.hudDue = performance.now() + 90;
+    if (!keepPlacing) this.stopPlacing();
+  }
+
+  private toast(message: string): void {
+    this.hud.toast.textContent = message;
+    this.hud.toast.hidden = false;
+    this.toastUntil = performance.now() + TOAST_MS;
   }
 
   // ---- Keyboard --------------------------------------------------------------
@@ -338,13 +586,26 @@ export class Controls {
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    switch (key.toLowerCase()) {
+    const lower = key.toLowerCase();
+    const action = ACTION_KEYS.indexOf(lower);
+    if (action !== -1 && action < this.actions().length) {
+      // The last button is "pull down", which has its own key so it is not hit by accident.
+      if (this.ownBuilding() !== -1 && action === this.actions().length - 1) return;
+      this.act(action);
+      return;
+    }
+    switch (lower) {
       case 's':
         this.stop();
         break;
       case 'escape':
-        this.selected.clear();
+        if (this.placing !== null) this.stopPlacing();
+        else this.clearSelection();
         this.refreshHud();
+        break;
+      case 'delete':
+      case 'backspace':
+        this.demolish();
         break;
       case '.':
         this.selectIdleVillager();
@@ -368,8 +629,7 @@ export class Controls {
     const members = (this.groups[digit] ?? []).filter((id) => world.isAlive(id));
     this.groups[digit] = members;
     if (members.length === 0) return;
-    this.selected.clear();
-    for (const id of members) this.selected.add(id);
+    this.selectUnits(members, false);
     if (jump) this.jumpToSelection();
     this.refreshHud();
   }
@@ -399,67 +659,193 @@ export class Controls {
     if (this.keysDown.has('ArrowRight')) this.view.pan(step, 0);
     if (this.keysDown.has('ArrowUp')) this.view.pan(0, -step);
     if (this.keysDown.has('ArrowDown')) this.view.pan(0, step);
+
+    // The plot follows the pointer, and is checked again as the world changes under it.
+    if (this.placing !== null && !this.buildersSelected()) this.stopPlacing();
+    if (this.placing !== null && this.pointer !== null) this.view.showPlot(this.plotAt(this.pointer.x, this.pointer.y));
+
     const before = this.selected.size;
+    const hadBuilding = this.building;
     this.dropTheDead();
     const now = performance.now();
-    if (this.selected.size !== before || now >= this.hudDue) {
-      this.hudDue = now + 250;
+    if (this.toastUntil !== 0 && now >= this.toastUntil) {
+      this.hud.toast.hidden = true;
+      this.toastUntil = 0;
+    }
+    if (this.selected.size !== before || this.building !== hadBuilding || now >= this.hudDue) {
+      this.hudDue = now + 200;
       this.refreshHud();
     }
   }
 
-  private refreshHud(): void {
+  private summary(): string {
     const { world } = this.session;
+    if (this.placing !== null) {
+      return `Placing a ${ENTITY_TYPES[this.placing]!.name} — click to build, shift-click for more, right-click to cancel`;
+    }
+    if (this.building !== null && world.isAlive(this.building)) {
+      const slot = entityIndex(this.building);
+      const name = capital(ENTITY_TYPES[world.entityType[slot]!]!.name);
+      if (world.owner[slot] !== this.player) return `${name} · the enemy's`;
+      if (world.built[slot] === 0) {
+        const done = world.buildPoints[slot]! / buildPointsNeeded(world.entityType[slot]!, world.config.tickRate);
+        return `${name} · ${Math.floor(done * 100)}% built`;
+      }
+      return name;
+    }
+    if (this.inspectedTile >= 0) {
+      const resource = resourceOfTerrain(world.map.terrain[this.inspectedTile]!);
+      if (resource === -1) this.inspectedTile = -1;
+      else return `${RESOURCE_SOURCES[resource]} · ${world.map.amount[this.inspectedTile]} ${RESOURCE_NAMES[resource]} left`;
+    }
     const counts = new Map<number, number>();
     for (const id of this.selected) {
       const kind = world.entityType[entityIndex(id)]!;
       counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
-    const parts = [...counts.entries()]
+    if (counts.size === 0) return 'Nothing selected';
+    let text = [...counts.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([kind, n]) => {
         const name = ENTITY_TYPES[kind]?.name ?? 'unit';
         return `${n} ${n === 1 ? name : (PLURALS[name] ?? `${name}s`)}`;
-      });
+      })
+      .join(' · ');
     // For a single villager, say what they are up to.
-    let doing = '';
     if (this.selected.size === 1) {
       const slot = entityIndex([...this.selected][0]!);
       if (ENTITY_TYPES[world.entityType[slot]!]!.carries > 0) {
         const job = world.job[slot];
-        const resource = resourceOfTerrain(world.jobTerrain[slot]!);
+        let doing = 'Idle';
         if (job === Job.ToDropOff) doing = 'Carrying a load home';
-        else if (job === Job.ToResource || job === Job.Harvesting) doing = RESOURCE_VERBS[resource] ?? 'Working';
-        else doing = 'Idle';
+        else if (job === Job.ToResource || job === Job.Harvesting) {
+          doing = RESOURCE_VERBS[resourceOfTerrain(world.jobTerrain[slot]!)] ?? 'Working';
+        } else if (job === Job.ToSite || job === Job.Constructing) doing = 'Building';
         if (world.carry[slot]! > 0) doing += ` · carrying ${world.carry[slot]}`;
+        text += ` — ${doing}`;
       }
     }
-    let summary = parts.length > 0 ? parts.join(' · ') : 'Nothing selected';
-    if (this.selected.size > 0) this.inspected = null;
-    const looking = this.inspected;
-    if (looking !== null && 'tile' in looking) {
-      const resource = resourceOfTerrain(world.map.terrain[looking.tile]!);
-      if (resource === -1) this.inspected = null;
-      else summary = `${RESOURCE_SOURCES[resource]} · ${world.map.amount[looking.tile]} ${RESOURCE_NAMES[resource]} left`;
-    } else if (looking !== null) {
-      if (!world.isAlive(looking.building)) this.inspected = null;
-      else {
-        const slot = entityIndex(looking.building);
-        const name = ENTITY_TYPES[world.entityType[slot]!]!.name;
-        summary = `${name[0]!.toUpperCase()}${name.slice(1)} · ${world.owner[slot] === this.player ? 'yours' : 'the enemy\'s'}`;
+    return text;
+  }
+
+  private refreshHud(): void {
+    const { world } = this.session;
+    const { hud } = this;
+    hud.selection.textContent = this.summary();
+    hud.stop.hidden = this.selected.size === 0;
+
+    // The action row is rebuilt only when what it offers changes, so a click is never lost to a redraw.
+    const actions = this.placing !== null ? [] : this.actions();
+    const own = this.ownBuilding();
+    const actionsFor = actions.map((a) => `${a.label}|${a.detail}`).join(';');
+    if (actionsFor !== this.actionsFor) {
+      this.actionsFor = actionsFor;
+      hud.actions.replaceChildren(
+        ...actions.map((action, index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'action';
+          button.dataset.action = String(index);
+          const pullDown = own !== -1 && index === actions.length - 1;
+          const key = pullDown ? 'del' : ACTION_KEYS[index];
+          button.innerHTML = `<span class="action-name"></span><span class="action-detail"></span>${key ? `<kbd>${key.toUpperCase()}</kbd>` : ''}`;
+          button.children[0]!.textContent = action.label;
+          button.children[1]!.textContent = action.detail;
+          if (pullDown) button.classList.add('action--quiet');
+          return button;
+        }),
+      );
+      hud.actions.hidden = actions.length === 0;
+    }
+    actions.forEach((action, index) => {
+      const button = hud.actions.children[index] as HTMLButtonElement | undefined;
+      // Shown as unaffordable rather than disabled, so a click can still say what is missing.
+      button?.classList.toggle('action--short', action.cost !== null && !world.canAfford(this.player, action.cost));
+    });
+
+    // Progress: of the building going up, or of the unit being trained.
+    let progress = -1;
+    const waiting = own === -1 ? 0 : world.trainLength[own]!;
+    if (own !== -1 && world.built[own] === 0) {
+      progress = world.buildPoints[own]! / buildPointsNeeded(world.entityType[own]!, world.config.tickRate);
+    } else if (waiting > 0) {
+      const head = world.trainQueue[own * TRAIN_QUEUE_LENGTH]! - 1;
+      progress = world.trainTicks[own]! / trainingTicks(head, world.config.tickRate);
+    }
+    hud.progress.hidden = progress < 0;
+    if (progress >= 0) hud.progressBar.style.width = `${Math.min(100, progress * 100).toFixed(1)}%`;
+
+    const held = waiting > 0 && world.trainStarted[own] === 0;
+    const queued = Array.from({ length: waiting }, (_, k) => world.trainQueue[own * TRAIN_QUEUE_LENGTH + k]! - 1);
+    const queueFor = `${own}:${queued.join(',')}:${held}`;
+    if (queueFor !== this.queueFor) {
+      this.queueFor = queueFor;
+      hud.queue.replaceChildren(
+        ...queued.map((unitType, k) => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'queued';
+          chip.dataset.queued = String(k);
+          chip.textContent = capital(ENTITY_TYPES[unitType]!.name) + (k === 0 && held ? ' · needs a house' : '');
+          chip.title = 'Click to cancel and get the cost back';
+          return chip;
+        }),
+      );
+      hud.queue.hidden = waiting === 0;
+    }
+
+    // Everything in training, across all the player's buildings.
+    const busy: number[] = [];
+    for (let slot = 0; slot < world.highWater; slot++) {
+      if (world.alive[slot] === 1 && world.mobile[slot] === 0 && world.owner[slot] === this.player && world.trainLength[slot]! > 0) {
+        busy.push(slot);
       }
     }
-    this.hud.selection.textContent = doing ? `${summary} — ${doing}` : summary;
-    this.hud.stop.disabled = this.selected.size === 0;
+    const productionFor = busy
+      .map((slot) => `${world.idAt(slot)}:${world.trainQueue[slot * TRAIN_QUEUE_LENGTH]}:${world.trainLength[slot]}:${world.trainStarted[slot]}`)
+      .join(';');
+    if (productionFor !== this.productionFor) {
+      this.productionFor = productionFor;
+      hud.production.replaceChildren(
+        ...busy.map((slot) => {
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'producing';
+          row.dataset.building = String(world.idAt(slot));
+          const unit = ENTITY_TYPES[world.trainQueue[slot * TRAIN_QUEUE_LENGTH]! - 1]!.name;
+          const more = world.trainLength[slot]! - 1;
+          const label = document.createElement('span');
+          label.textContent =
+            `${capital(unit)}${more > 0 ? ` +${more}` : ''}` + (world.trainStarted[slot] === 0 ? ' · needs a house' : '');
+          const bar = document.createElement('i');
+          row.append(label, bar);
+          row.title = `In training at the ${ENTITY_TYPES[world.entityType[slot]!]!.name}. Click to go there.`;
+          return row;
+        }),
+      );
+      hud.production.hidden = busy.length === 0;
+    }
+    busy.forEach((slot, index) => {
+      const head = world.trainQueue[slot * TRAIN_QUEUE_LENGTH]! - 1;
+      const bar = hud.production.children[index]?.lastElementChild as HTMLElement | null;
+      if (bar) bar.style.width = `${Math.min(100, (world.trainTicks[slot]! / trainingTicks(head, world.config.tickRate)) * 100).toFixed(1)}%`;
+    });
+
+    const population = countPopulation(world);
+    hud.population.textContent = `${population.used[this.player]}/${population.room[this.player]}`;
+    hud.population.classList.toggle('full', population.used[this.player]! >= population.room[this.player]!);
 
     const idle = this.idleVillagers().length;
     if (idle !== this.idleShown) {
       this.idleShown = idle;
-      this.hud.idle.hidden = idle === 0;
-      this.hud.idle.textContent = `${idle} idle ${idle === 1 ? 'villager' : 'villagers'}`;
+      hud.idle.hidden = idle === 0;
+      hud.idle.textContent = `${idle} idle ${idle === 1 ? 'villager' : 'villagers'}`;
     }
 
-    this.hud.groups.replaceChildren(
+    const groupsFor = this.groups.map((members) => members.filter((id) => world.isAlive(id)).length).join(',');
+    if (groupsFor === this.groupsFor) return;
+    this.groupsFor = groupsFor;
+    hud.groups.replaceChildren(
       ...this.groups.flatMap((members, digit) => {
         const living = members.filter((id) => world.isAlive(id)).length;
         if (living === 0) return [];

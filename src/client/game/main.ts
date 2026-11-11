@@ -44,10 +44,10 @@ async function start(): Promise<void> {
   const { world } = session;
   const [home, enemy] = world.map.starts;
   if (!home || !enemy) throw new Error('the map has no start positions');
-  // A guard of spearmen beside each town, on the side away from the villagers.
+  // Three spearmen beside each town to begin with; the rest must be trained.
   const tile = 1 << 16;
-  session.issue(0, { kind: 'spawn', x: home.x - 6 * tile, y: home.y + 2 * tile, count: 12, unitType: Kind.Spearman });
-  session.issue(1, { kind: 'spawn', x: enemy.x + 6 * tile, y: enemy.y - 2 * tile, count: 12, unitType: Kind.Spearman });
+  session.issue(0, { kind: 'spawn', x: home.x - 6 * tile, y: home.y + 2 * tile, count: 3, unitType: Kind.Spearman });
+  session.issue(1, { kind: 'spawn', x: enemy.x + 6 * tile, y: enemy.y - 2 * tile, count: 3, unitType: Kind.Spearman });
   // Let everyone find their feet before the curtain goes up.
   for (let i = 0; i < 60; i++) session.step();
   // There is no AI yet, so the red villagers are simply set to work near home:
@@ -78,6 +78,13 @@ async function start(): Promise<void> {
     groups: byId('groups'),
     stop: byId<HTMLButtonElement>('btn-stop'),
     idle: byId<HTMLButtonElement>('btn-idle'),
+    actions: byId('actions'),
+    queue: byId('queue'),
+    progress: byId('progress'),
+    progressBar: byId('progress-bar'),
+    population: byId('population'),
+    toast: byId('toast'),
+    production: byId('production'),
   });
   const minimap = new Minimap(byId<HTMLCanvasElement>('minimap'), world, view, (x, y, queue) =>
     controls.order(x, y, queue),

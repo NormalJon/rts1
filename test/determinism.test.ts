@@ -5,7 +5,7 @@ import { runReplay, type Replay } from '../src/sim/replay';
 import { step } from '../src/sim/sim';
 import { restoreSnapshot, takeSnapshot, type WorldSnapshot } from '../src/sim/snapshot';
 import { Kind } from '../src/sim/entityTypes';
-import { defaultConfig, World } from '../src/sim/world';
+import { defaultConfig, Job, World } from '../src/sim/world';
 import { Rng } from '../src/sim/rng';
 import { brokenInvariant, playRandomMatch } from './helpers';
 
@@ -22,29 +22,39 @@ describe('determinism', () => {
   });
 
   it('actually exercises the simulation', () => {
-    const { hashes, session } = playRandomMatch(config, 77, TICKS);
+    // Tally what went on during the match, tick by tick.
+    let harvesting = 0;
+    let constructing = 0;
+    let mostBuildings = 0;
+    let mostQueued = 0;
+    const { hashes, session } = playRandomMatch(config, 77, TICKS, (world) => {
+      let buildings = 0;
+      for (let slot = 0; slot < world.highWater; slot++) {
+        if (world.alive[slot] === 0) continue;
+        if (world.job[slot] === Job.Harvesting) harvesting++;
+        if (world.job[slot] === Job.Constructing) constructing++;
+        if (world.mobile[slot] === 0) {
+          buildings++;
+          mostQueued = Math.max(mostQueued, world.trainLength[slot]!);
+        }
+      }
+      mostBuildings = Math.max(mostBuildings, buildings);
+    });
     const replay = session.replay();
     expect(new Set(hashes).size).toBeGreaterThan(TICKS - 30);
     expect(replay.commands.length).toBeGreaterThan(100);
     expect(replay.commands.some((c) => c.command.kind === 'move' && c.command.queue === true)).toBe(true);
-    expect(replay.commands.some((c) => c.command.kind === 'gather')).toBe(true);
-    expect(session.world.livingEntities().length).toBeGreaterThan(20);
-    // Villagers have been at work: counting what was spent, both players' stores have grown.
-    const { stock, spent } = session.world;
-    const worth = (player: number): number =>
-      [0, 1, 2, 3].reduce((sum, r) => sum + stock[player * 4 + r]! + spent[player * 4 + r]!, 0);
-    expect(worth(0)).toBeGreaterThan(505);
-    expect(worth(1)).toBeGreaterThan(505);
-    // And both have spent some of it on buildings and units.
-    for (const kind of ['build', 'train', 'construct', 'rally'] as const) {
+    for (const kind of ['gather', 'deliver', 'build', 'construct', 'train', 'cancelTrain', 'rally', 'demolish'] as const) {
       expect(replay.commands.some((c) => c.command.kind === kind), kind).toBe(true);
     }
-    expect(spent[1]! + spent[5]!).toBeGreaterThan(0); // wood, on buildings
+    expect(session.world.livingEntities().length).toBeGreaterThan(20);
+    // Villagers gathered and built, sites were founded, units were queued and paid for.
+    expect(harvesting).toBeGreaterThan(300);
+    expect(constructing).toBeGreaterThan(300);
+    expect(mostBuildings).toBeGreaterThan(2);
+    expect(mostQueued).toBeGreaterThan(0);
+    const { spent } = session.world;
     expect(spent[0]! + spent[4]!).toBeGreaterThan(0); // food, on units
-    const world = session.world;
-    // Sites have been founded beyond the two town centres.
-    const buildings = world.livingEntities().filter((id) => world.mobile[id & 0xfffff] === 0);
-    expect(buildings.length).toBeGreaterThan(2);
   });
 
   it('never leaves a unit in an obstacle or a group miscounted', () => {
@@ -148,7 +158,7 @@ describe('determinism', () => {
     // deliberate, update the value here and in scripts/browser-check.mjs; old
     // replays will no longer play back.
     const { hashes } = playRandomMatch(config, 77, TICKS);
-    expect(hashHex(hashes[TICKS - 1]!)).toBe('60dd234a');
+    expect(hashHex(hashes[TICKS - 1]!)).toBe('3ce18c53');
   });
 });
 

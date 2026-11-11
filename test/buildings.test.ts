@@ -154,11 +154,18 @@ describe('building work', () => {
 
   it('goes faster with more hands, but less so each time', () => {
     // One builder adds three points a tick, each helper one more: 1,800 points
-    // take two builders 450 ticks, three 360 and six 225. A tick or two is
-    // lost or gained as the helpers arrive.
-    expect(Math.abs(buildHouse(2) - 450)).toBeLessThanOrEqual(2);
-    expect(Math.abs(buildHouse(3) - 360)).toBeLessThanOrEqual(2);
-    expect(Math.abs(buildHouse(6) - 225)).toBeLessThanOrEqual(3);
+    // take two builders 450 ticks, three 360 and six 225. The count starts once
+    // the last builder has arrived, so the work the first few did while the
+    // others walked round the site comes off the total.
+    for (const [builders, ticks] of [
+      [2, 450],
+      [3, 360],
+      [6, 225],
+    ] as const) {
+      const took = buildHouse(builders);
+      expect(took, `${builders} builders`).toBeLessThanOrEqual(ticks + 2);
+      expect(took, `${builders} builders`).toBeGreaterThan(ticks * 0.9);
+    }
   });
 
   it('leaves the builders idle when there is nothing else to do', () => {
