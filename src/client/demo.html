@@ -1,0 +1,167 @@
+<title>Tick Rate Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+  /* Layout: one column. The muster field leads; controls and instrument
+     readouts sit directly beneath it; notes on what to try close the page. */
+  :root {
+    --bg: #eceee7;         /* lichen on stone */
+    --surface: #f7f8f3;
+    --ink: #1c2420;
+    --muted: #57635b;
+    --line: #cdd4c8;
+    --field: #c5d1b3;      /* grazed pasture */
+    --field-line: #b3c1a0;
+    --woad: #285c88;       /* the medieval blue dye: your company */
+    --woad-ink: #ffffff;
+    --madder: #ad3528;     /* the medieval red dye: where you ordered them */
+    --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131916; --surface: #1a221e; --ink: #e3e8e0; --muted: #96a399;
+      --line: #2d3932; --field: #223027; --field-line: #2c3d32;
+      --woad: #74aede; --woad-ink: #0b1620; --madder: #e57564;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131916; --surface: #1a221e; --ink: #e3e8e0; --muted: #96a399;
+    --line: #2d3932; --field: #223027; --field-line: #2c3d32;
+    --woad: #74aede; --woad-ink: #0b1620; --madder: #e57564;
+    color-scheme: dark;
+  }
+
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+  .lab {
+    max-width: 960px; margin-inline: auto; padding-block: 28px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; flex-direction: column; gap: 20px;
+  }
+  .lab > * { min-width: 0; }
+  h1, h2 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: 1.75rem; letter-spacing: -0.01em; }
+  h2 { font-size: 1.05rem; }
+  p { margin: 0; }
+  .intro { display: flex; flex-direction: column; gap: 6px; }
+  .intro p { color: var(--muted); max-width: 65ch; }
+
+  .field-wrap { position: relative; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--field); }
+  #field { display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 10; cursor: crosshair; touch-action: none; }
+  .field-hint {
+    position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--ink);
+    opacity: 0.7; pointer-events: none;
+  }
+
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px 24px; }
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  legend { padding: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .segments { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+  .segments label { flex: 1; text-align: center; position: relative; }
+  .segments input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .segments span {
+    display: block; padding: 8px 4px; font-family: var(--font-data); font-size: 14px;
+    border-left: 1px solid var(--line); font-variant-numeric: tabular-nums;
+  }
+  .segments label:first-child span { border-left: 0; }
+  .segments input:checked + span { background: var(--woad); color: var(--woad-ink); }
+  .segments input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: -3px; }
+  .control-note { font-size: 13px; color: var(--muted); min-height: 1.55em; }
+
+  .readouts {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0;
+    border-block: 1px solid var(--line);
+  }
+  .readout { padding: 12px 12px 12px 0; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .readout dt { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .readout dd { margin: 0; font-family: var(--font-data); font-size: 1.15rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .readout dd small { font-size: 0.75rem; color: var(--muted); }
+  dl { margin: 0; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button {
+    font: inherit; font-weight: 500; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--woad); outline-offset: 2px; }
+
+  .notes { display: flex; flex-direction: column; gap: 8px; max-width: 65ch; }
+  .notes ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; }
+  .notes li::marker { color: var(--muted); }
+  .swatch { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; vertical-align: baseline; margin-right: 0.1em; }
+  .swatch.woad { background: var(--woad); }
+  .swatch.madder { background: transparent; box-shadow: inset 0 0 0 2px var(--madder); }
+</style>
+
+<main class="lab">
+  <header class="intro">
+    <h1>Tick Rate Lab</h1>
+    <p>The simulation core, running live. Click the field to order the company to a spot, then change how often the game thinks and feel what that does to the response.</p>
+  </header>
+
+  <div class="field-wrap">
+    <canvas id="field" aria-label="Muster field. Click to order the company to move."></canvas>
+    <span class="field-hint">64 × 40 tiles · 36 spearmen</span>
+  </div>
+
+  <div class="controls">
+    <fieldset>
+      <legend>Ticks per second</legend>
+      <div class="segments">
+        <label><input type="radio" name="rate" id="rate-8" value="8"><span>8</span></label>
+        <label><input type="radio" name="rate" id="rate-20" value="20"><span>20</span></label>
+        <label><input type="radio" name="rate" id="rate-30" value="30" checked><span>30</span></label>
+        <label><input type="radio" name="rate" id="rate-60" value="60"><span>60</span></label>
+      </div>
+      <p class="control-note" id="rate-note"></p>
+    </fieldset>
+    <fieldset>
+      <legend>Input delay, in ticks</legend>
+      <div class="segments">
+        <label><input type="radio" name="delay" id="delay-0" value="0" checked><span>0</span></label>
+        <label><input type="radio" name="delay" id="delay-2" value="2"><span>2</span></label>
+        <label><input type="radio" name="delay" id="delay-4" value="4"><span>4</span></label>
+        <label><input type="radio" name="delay" id="delay-8" value="8"><span>8</span></label>
+      </div>
+      <p class="control-note" id="delay-note"></p>
+    </fieldset>
+    <fieldset>
+      <legend>Smoothing between ticks</legend>
+      <div class="segments">
+        <label><input type="radio" name="smooth" id="smooth-on" value="on" checked><span>On</span></label>
+        <label><input type="radio" name="smooth" id="smooth-off" value="off"><span>Off</span></label>
+      </div>
+      <p class="control-note" id="smooth-note"></p>
+    </fieldset>
+  </div>
+
+  <dl class="readouts">
+    <div class="readout"><dt>Last order</dt><dd id="out-latency">none yet</dd></div>
+    <div class="readout"><dt>Tick</dt><dd id="out-tick">0</dd></div>
+    <div class="readout"><dt>Ticks / second</dt><dd id="out-tps">0</dd></div>
+    <div class="readout"><dt>Frames / second</dt><dd id="out-fps">0</dd></div>
+    <div class="readout"><dt>State checksum</dt><dd id="out-hash">00000000</dd></div>
+  </dl>
+
+  <div class="actions">
+    <button type="button" id="btn-random">Order to a random spot</button>
+    <button type="button" id="btn-replay">Verify by replay</button>
+    <span class="control-note" id="replay-note" role="status"></span>
+  </div>
+
+  <section class="notes">
+    <h2>What to try</h2>
+    <ul>
+      <li>Set 8 ticks per second and click around. Age of Empires IV is reported to run at this rate. Then set 30, our target.</li>
+      <li>Turn smoothing off to see the simulation as it really moves, one tick at a time. With smoothing on, the display blends between ticks at your monitor's full rate.</li>
+      <li>Add input delay to feel online play. Local play uses 0; a good connection needs about 2 ticks, a poor one 4 or more.</li>
+      <li><span class="swatch madder"></span> appears the instant you click, whatever the settings: feedback never waits for the simulation. <span class="swatch woad"></span> move only when the order's tick arrives. "Last order" measures that gap.</li>
+      <li>"Verify by replay" re-runs the whole session from its recorded orders and compares checksums. A match is what makes replays, saved games and lockstep multiplayer possible.</li>
+    </ul>
+  </section>
+</main>
+<!-- SCRIPT -->

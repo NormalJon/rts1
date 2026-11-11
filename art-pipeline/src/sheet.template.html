@@ -1,0 +1,442 @@
+<title>Art Sample Sheet</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:wght@500;700&family=Alegreya+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a modeller's specimen sheet. One reading column of facts, then trays of
+     specimens on a limewash ground; the models carry the colour, the page stays quiet. */
+  :root {
+    --bg: #eceee9;
+    --surface: #f8f9f6;
+    --stage: #e1e6de;
+    --ground: #cbd3c4;
+    --ink: #1c2526;
+    --muted: #57635f;
+    --line: #cbd2ca;
+    --accent: #2b5d8a;      /* woad blue */
+    --accent-ink: #ffffff;
+    --chip: #ffffff;
+    --display: "Alegreya", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --body: "Alegreya Sans", "Gill Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131819; --surface: #1a2122; --stage: #202a2b; --ground: #303d3e; --ink: #e6eae7;
+      --muted: #9ba8a4; --line: #2c3839; --accent: #8bbbe4; --accent-ink: #0f1516; --chip: #252f30;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131819; --surface: #1a2122; --stage: #202a2b; --ground: #303d3e; --ink: #e6eae7;
+    --muted: #9ba8a4; --line: #2c3839; --accent: #8bbbe4; --accent-ink: #0f1516; --chip: #252f30;
+    color-scheme: dark;
+  }
+
+  body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.5; }
+  .page {
+    max-width: 1120px; margin: 0 auto; padding-block: 40px 72px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; flex-direction: column; gap: 56px;
+  }
+  h1, h2, h3, p, ul, dl, dd, figure { margin: 0; }
+  ul { padding: 0; list-style: none; }
+  h1 { font-family: var(--display); font-weight: 700; font-size: clamp(2.1rem, 6vw, 3.1rem); line-height: 1.05; letter-spacing: -0.01em; text-wrap: balance; }
+  h2 { font-family: var(--display); font-weight: 700; font-size: 1.6rem; line-height: 1.15; text-wrap: balance; }
+  h3 { font-family: var(--display); font-weight: 700; font-size: 1.2rem; line-height: 1.2; }
+  .eyebrow { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+
+  header { display: flex; flex-direction: column; gap: 14px; }
+  .lede { max-width: 62ch; font-size: 1.13rem; color: var(--ink); }
+  .facts { display: flex; flex-wrap: wrap; gap: 10px 36px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .facts dt { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .facts dd { font-family: var(--mono); font-size: 1rem; font-variant-numeric: tabular-nums; }
+
+  /* Team colour switch */
+  .tint { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+  .tint-text { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .tint-text p { color: var(--muted); font-size: 0.98rem; max-width: 60ch; }
+  .tint-text code { font-family: var(--mono); font-size: 0.86em; color: var(--ink); }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swatch { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 7px; font: 500 0.95rem var(--body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+  .swatch i { width: 18px; height: 18px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18); }
+  .swatch[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+  button:focus-visible, canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Specimen trays */
+  .group { display: flex; flex-direction: column; gap: 18px; }
+  .group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; }
+  .group-head p { color: var(--muted); max-width: 62ch; min-width: 0; }
+  .grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .grid--units { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; min-width: 0; }
+  .stage { position: relative; background: var(--stage); aspect-ratio: 4 / 3; max-width: 100%; }
+  .card--unit .stage { aspect-ratio: 1 / 1; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
+  .stage canvas:active { cursor: grabbing; }
+  .stage .fail { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: var(--muted); font-size: 0.95rem; }
+  figcaption { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 16px; flex: 1; }
+  .note { color: var(--muted); font-size: 0.98rem; }
+  .stats { margin-top: auto; padding-top: 6px; display: flex; flex-wrap: wrap; gap: 2px 16px; font-family: var(--mono); font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .clips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .clip { padding: 5px 12px; font: 500 0.92rem var(--body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
+  .clip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .clip--rest { color: var(--muted); }
+
+  /* Icons */
+  .icon-panel { display: flex; flex-direction: column; gap: 26px; padding: 22px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+  .icon-row { display: flex; flex-direction: column; gap: 12px; }
+  .icon-row h3 { font-family: var(--mono); font-weight: 500; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+  .icons { display: grid; gap: 18px 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .icons li { display: grid; grid-template-columns: 72px 44px; grid-template-rows: 72px auto auto; column-gap: 12px; align-items: end; min-width: 0; }
+  .icon-lg { width: 72px; height: 72px; color: var(--ink); }
+  .icon-btn { width: 44px; height: 44px; display: grid; place-items: center; color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 4px; }
+  .icon-lg svg { width: 72px; height: 72px; display: block; }
+  .icon-btn svg { width: 32px; height: 32px; display: block; }
+  .icon-name { grid-column: 1 / -1; padding-top: 8px; font-weight: 500; }
+  .icon-file { grid-column: 1 / -1; font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+
+  /* Limits */
+  .limits { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .limits > div { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+  .limits ul { display: flex; flex-direction: column; gap: 9px; }
+  .limits li { padding-left: 18px; position: relative; max-width: 62ch; }
+  .limits li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 7px; height: 7px; background: var(--accent); }
+  .limits .cannot li::before { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .prose { display: flex; flex-direction: column; gap: 10px; max-width: 66ch; }
+  .prose p { color: var(--ink); }
+  .prose code { font-family: var(--mono); font-size: 0.86em; }
+  .hint { color: var(--muted); font-size: 0.95rem; }
+</style>
+
+<div class="page">
+  <header>
+    <p class="eyebrow">Medieval RTS · placeholder art written as code</p>
+    <h1>Art Sample Sheet</h1>
+    <p class="lede">A first set for High Medieval Western Europe, about 1000 to 1250. Every model here is generated by a script and exported as a standard glTF file, the format Godot, Unity and Unreal all import. Nothing was drawn or sculpted by hand.</p>
+    <dl class="facts"><!--__FACTS__-->
+    </dl>
+  </header>
+
+  <section class="tint" aria-labelledby="h-tint">
+    <div class="tint-text">
+      <h3 id="h-tint">Team colour</h3>
+      <p>Each model has one material named <code>TeamColor</code> on its banners, shield faces and tunics. The engine recolours that material per player. Named here for the heraldic tinctures.</p>
+    </div>
+    <div class="swatches" role="group" aria-label="Team colour">
+      <button type="button" class="swatch" id="team-azure" data-team="#2c5aa8" style="--c:#2c5aa8" aria-pressed="true"><i></i>Azure</button>
+      <button type="button" class="swatch" id="team-gules" data-team="#b3312c" style="--c:#b3312c" aria-pressed="false"><i></i>Gules</button>
+      <button type="button" class="swatch" id="team-or" data-team="#d6a21e" style="--c:#d6a21e" aria-pressed="false"><i></i>Or</button>
+      <button type="button" class="swatch" id="team-vert" data-team="#2f7d46" style="--c:#2f7d46" aria-pressed="false"><i></i>Vert</button>
+    </div>
+  </section>
+
+  <p class="hint" id="drag-hint">Drag a model sideways to turn it, up and down to change the camera height. Arrow keys work when a model has focus.</p>
+<!--__MODELS__-->
+
+  <section class="group" aria-labelledby="h-icons">
+    <div class="group-head">
+      <h2 id="h-icons">Interface icons</h2>
+      <p>Single-colour SVG on a 32-unit grid. Each is shown large and at 32 px inside a command button.</p>
+    </div>
+    <div class="icon-panel"><!--__ICONS__-->
+    </div>
+  </section>
+
+  <section class="group" aria-labelledby="h-limits">
+    <div class="group-head">
+      <h2 id="h-limits">What this approach can and cannot do</h2>
+    </div>
+    <div class="limits">
+      <div>
+        <h3>Works well</h3>
+        <ul>
+          <li>Buildings, walls, siege engines and props. Straight timber and cut stone suit geometry built from boxes, prisms and cylinders.</li>
+          <li>Trees and rocks, where a little randomness in the script reads as natural variety.</li>
+          <li>Consistency. Every file shares one scale (1 unit is 1 metre), one palette, the same origin and the same team-colour slot.</li>
+          <li>Variants. A second house, a taller tower or a later-period keep is a change of numbers, then a rebuild.</li>
+          <li>Stylised units that move by rotating rigid limbs, which is enough at strategy-game camera distance.</li>
+          <li>Interface icons, heraldry and diagrams as SVG.</li>
+        </ul>
+      </div>
+      <div class="cannot">
+        <h3>Does not work</h3>
+        <ul>
+          <li>Organic shapes. Faces, horses, cloth folds and anything sculpted come out as blocks. The figures above are toy soldiers, not characters.</li>
+          <li>Skinned animation. Joints here do not bend or stretch; limbs are separate solid pieces. Motion is written as formulas, so it looks stiff close up.</li>
+          <li>Textures. There is no painted or photographed surface detail: no stone coursing, wood grain or thatch. Colour is one flat value per face.</li>
+          <li>Art direction by eye. I check results from screenshots, not by looking at the model while shaping it, so proportions take several rounds.</li>
+          <li>Sound, music and voice. None of that is covered here.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="prose">
+      <p>The practical reading: this is good for placeholders that are the right size, shape and period, and for structures it may be good enough to keep. For units, an artist or a well-made open-licence pack will look better, and these files show them exactly what to replace.</p>
+      <p class="hint">Rebuild everything with <code>npm run build</code> in <code>art-pipeline/</code>. The models on this page are the exported <code>.glb</code> files themselves, embedded and read by a standard glTF loader.</p>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+(function () {
+  'use strict';
+  var MANIFEST = /*__MANIFEST__*/[];
+  var GLB = /*__GLB__*/{};
+
+  var canvases = Array.prototype.slice.call(document.querySelectorAll('canvas[data-model]'));
+  function fail(message) {
+    canvases.forEach(function (c) {
+      var note = document.createElement('p');
+      note.className = 'fail';
+      note.textContent = message;
+      c.parentNode.appendChild(note);
+      c.hidden = true;
+    });
+    document.getElementById('drag-hint').hidden = true;
+  }
+  if (!window.THREE || !THREE.GLTFLoader) return fail('The 3D viewer could not load. The model files are in art-pipeline/models.');
+
+  var renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  } catch (e) {
+    return fail('This browser could not start WebGL, so the models cannot be shown here.');
+  }
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setClearColor(0x000000, 0);
+  renderer.autoClear = false;
+
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var teamHex = '#2c5aa8';
+  var viewers = [];
+  var byId = {};
+
+  function token(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#cccccc';
+  }
+  function linear(hex) {
+    return new THREE.Color(hex).convertSRGBToLinear();
+  }
+  function b64ToBuffer(b64) {
+    var bin = atob(b64), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function applyTeam(v) {
+    v.model.traverse(function (o) {
+      if (o.isMesh && o.material && o.material.name === 'TeamColor') o.material.color.copy(linear(teamHex));
+    });
+    v.dirty = true;
+  }
+  function applyTheme(v) {
+    v.ground.material.color.copy(linear(token('--ground')));
+    v.dirty = true;
+  }
+
+  function makeViewer(canvas, meta, gltf) {
+    var scene = new THREE.Scene();
+    var model = gltf.scene;
+    var pivot = new THREE.Group();
+    pivot.add(model);
+    scene.add(pivot);
+    model.traverse(function (o) {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    });
+
+    var box = new THREE.Box3().setFromObject(model);
+    var size = box.getSize(new THREE.Vector3());
+    var centre = box.getCenter(new THREE.Vector3());
+    var isUnit = meta.clips.length > 0;
+    // Turn about the model's own middle so it stays framed.
+    model.position.set(-centre.x, 0, -centre.z);
+    // Units get headroom for raised weapons. The ground disc must fit in view at any angle.
+    var groundR = Math.hypot(size.x, size.z) / 2 * (isUnit ? 1.3 : 1.1);
+    var radius = Math.max(size.length() / 2 * (isUnit ? 1.34 : 1.0), Math.hypot(groundR, centre.y) * 0.96);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7163, 0.72));
+    var sun = new THREE.DirectionalLight(0xfff1dc, 0.95);
+    sun.position.set(-radius * 1.3, radius * 2.6, radius * 1.7);
+    sun.target.position.set(0, centre.y, 0);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    var sc = sun.shadow.camera;
+    sc.left = sc.bottom = -radius * 1.4; sc.right = sc.top = radius * 1.4;
+    sc.near = 0.1; sc.far = radius * 8;
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = radius * 0.006;
+    scene.add(sun, sun.target);
+
+    var ground = new THREE.Mesh(new THREE.CircleGeometry(groundR, 48), new THREE.MeshBasicMaterial({ color: 0xcccccc }));
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+    var catcher = new THREE.Mesh(new THREE.CircleGeometry(groundR, 48), new THREE.ShadowMaterial({ opacity: 0.26 }));
+    catcher.rotation.x = -Math.PI / 2;
+    catcher.position.y = 0.01;
+    catcher.receiveShadow = true;
+    scene.add(catcher);
+
+    var camera = new THREE.PerspectiveCamera(24, 1, 0.1, 2000);
+    var v = {
+      id: meta.id, canvas: canvas, ctx: canvas.getContext('2d'), scene: scene, camera: camera, model: model, pivot: pivot,
+      ground: ground, centre: centre, radius: radius, yaw: meta.yaw, pitch: 0.5, dirty: true, visible: true,
+      mixer: null, actions: {}, current: null,
+    };
+    if (gltf.animations && gltf.animations.length) {
+      v.mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach(function (clip) { v.actions[clip.name] = v.mixer.clipAction(clip); });
+    }
+    applyTeam(v);
+    applyTheme(v);
+    return v;
+  }
+
+  function sizeCanvas(v) {
+    var r = v.canvas.getBoundingClientRect();
+    var w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (v.canvas.width !== w || v.canvas.height !== h) { v.canvas.width = w; v.canvas.height = h; v.dirty = true; }
+  }
+
+  function draw(v) {
+    var w = v.canvas.width, h = v.canvas.height;
+    var rc = renderer.domElement;
+    if (rc.width < w || rc.height < h) renderer.setSize(Math.max(rc.width, w), Math.max(rc.height, h), false);
+    var cam = v.camera;
+    cam.aspect = w / h;
+    var vfov = cam.fov * Math.PI / 180;
+    var hfov = 2 * Math.atan(Math.tan(vfov / 2) * cam.aspect);
+    var dist = v.radius / Math.sin(Math.min(vfov, hfov) / 2);
+    cam.position.set(0, v.centre.y + dist * Math.sin(v.pitch), dist * Math.cos(v.pitch));
+    cam.lookAt(0, v.centre.y, 0);
+    cam.near = dist * 0.05; cam.far = dist * 4;
+    cam.updateProjectionMatrix();
+    v.pivot.rotation.y = v.yaw;
+
+    renderer.setViewport(0, 0, w, h);
+    renderer.setScissor(0, 0, w, h);
+    renderer.setScissorTest(true);
+    renderer.clear();
+    renderer.render(v.scene, cam);
+    v.ctx.clearRect(0, 0, w, h);
+    // WebGL's origin is bottom-left, so the viewport sits at the bottom of the shared canvas.
+    v.ctx.drawImage(renderer.domElement, 0, renderer.domElement.height - h, w, h, 0, 0, w, h);
+    v.dirty = false;
+  }
+
+  function play(v, name) {
+    if (!v.mixer) return;
+    var next = name ? v.actions[name] : null;
+    if (v.current && v.current !== next) v.current.fadeOut(0.18);
+    if (next) next.reset().fadeIn(0.18).play();
+    else v.mixer.stopAllAction();
+    v.current = next || null;
+    v.dirty = true;
+    document.querySelectorAll('.clip[data-model="' + v.id + '"]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.clip === (name || '')));
+    });
+  }
+
+  function attachInput(v) {
+    var c = v.canvas, last = null;
+    c.addEventListener('pointerdown', function (e) { last = { x: e.clientX, y: e.clientY }; c.setPointerCapture(e.pointerId); });
+    c.addEventListener('pointermove', function (e) {
+      if (!last) return;
+      v.yaw += (e.clientX - last.x) * 0.012;
+      v.pitch = Math.min(1.25, Math.max(0.12, v.pitch + (e.clientY - last.y) * 0.006));
+      last = { x: e.clientX, y: e.clientY };
+      v.dirty = true;
+    });
+    function end() { last = null; }
+    c.addEventListener('pointerup', end);
+    c.addEventListener('pointercancel', end);
+    c.addEventListener('keydown', function (e) {
+      var step = { ArrowLeft: [-0.2, 0], ArrowRight: [0.2, 0], ArrowUp: [0, 0.1], ArrowDown: [0, -0.1] }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      v.yaw += step[0];
+      v.pitch = Math.min(1.25, Math.max(0.12, v.pitch + step[1]));
+      v.dirty = true;
+    });
+  }
+
+  var loader = new THREE.GLTFLoader();
+  var pending = canvases.length;
+  canvases.forEach(function (canvas) {
+    var meta = MANIFEST.filter(function (m) { return m.id === canvas.dataset.model; })[0];
+    loader.parse(b64ToBuffer(GLB[meta.id]), '', function (gltf) {
+      var v = makeViewer(canvas, meta, gltf);
+      viewers.push(v);
+      byId[v.id] = v;
+      sizeCanvas(v);
+      attachInput(v);
+      if (v.mixer && !reduceMotion && v.actions.idle) play(v, 'idle');
+      else if (v.mixer) play(v, '');
+      if (--pending === 0) document.documentElement.setAttribute('data-models-ready', '');
+    }, function (err) {
+      console.error('Could not read ' + meta.id + '.glb', err);
+      if (--pending === 0) document.documentElement.setAttribute('data-models-ready', '');
+    });
+  });
+
+  document.querySelectorAll('.swatch').forEach(function (b) {
+    b.addEventListener('click', function () {
+      teamHex = b.dataset.team;
+      document.querySelectorAll('.swatch').forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      viewers.forEach(applyTeam);
+    });
+  });
+  document.querySelectorAll('.clip').forEach(function (b) {
+    b.addEventListener('click', function () { var v = byId[b.dataset.model]; if (v) play(v, b.dataset.clip); });
+  });
+
+  if ('ResizeObserver' in window) {
+    var ro = new ResizeObserver(function () { viewers.forEach(sizeCanvas); });
+    canvases.forEach(function (c) { ro.observe(c); });
+  }
+  window.addEventListener('resize', function () { viewers.forEach(sizeCanvas); });
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        var v = byId[en.target.dataset.model];
+        if (v) { v.visible = en.isIntersecting; if (v.visible) v.dirty = true; }
+      });
+    }, { rootMargin: '200px' });
+    canvases.forEach(function (c) { io.observe(c); });
+  }
+  function retheme() { viewers.forEach(applyTheme); }
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', retheme);
+  new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // Test hook for the screenshot script: pose a clip at a fixed time.
+  window.__sheet = {
+    pose: function (id, clip, time) {
+      var v = byId[id];
+      if (!v || !v.mixer) return;
+      v.mixer.stopAllAction();
+      v.current = null;
+      if (clip) { var a = v.actions[clip]; a.reset().play(); a.paused = true; a.time = time; v.mixer.update(0); }
+      v.dirty = true;
+    },
+    view: function (id, yaw, pitch) { var v = byId[id]; if (v) { v.yaw = yaw; v.pitch = pitch; v.dirty = true; } },
+  };
+
+  var prev = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.1, (now - prev) / 1000);
+    prev = now;
+    for (var i = 0; i < viewers.length; i++) {
+      var v = viewers[i];
+      if (!v.visible) continue;
+      if (v.mixer && v.current && !v.current.paused) { v.mixer.update(dt); v.dirty = true; }
+      if (v.dirty) draw(v);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>

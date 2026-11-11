@@ -1,0 +1,180 @@
+[
+  {
+    "id": "spearman",
+    "group": "units",
+    "label": "Spearman",
+    "note": "Nasal helm, mail hauberk, kite shield and spear, after the Bayeux Tapestry. Ten rigid parts, three clips.",
+    "file": "models/spearman.glb",
+    "triangles": 396,
+    "bytes": 56628,
+    "yaw": 0.55,
+    "clips": [
+      "idle",
+      "walk",
+      "attack"
+    ],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "villager",
+    "group": "units",
+    "label": "Villager",
+    "note": "Tunic, caped hood and felling axe. Same rig as the spearman, different clothes and clips.",
+    "file": "models/villager.glb",
+    "triangles": 300,
+    "bytes": 49412,
+    "yaw": 0.55,
+    "clips": [
+      "idle",
+      "walk",
+      "chop"
+    ],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "house",
+    "group": "buildings",
+    "label": "Peasant house",
+    "note": "Timber posts, wattle-and-daub, thatch. No chimney: smoke left through the roof.",
+    "file": "models/house.glb",
+    "triangles": 1186,
+    "bytes": 92356,
+    "yaw": -0.95,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "keep",
+    "group": "buildings",
+    "label": "Stone keep",
+    "note": "Anglo-Norman great tower: battered plinth, pilaster buttresses, entrance raised to the first floor.",
+    "file": "models/keep.glb",
+    "triangles": 1445,
+    "bytes": 112376,
+    "yaw": -0.7,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "watchtower",
+    "group": "buildings",
+    "label": "Watchtower",
+    "note": "Cross-braced timber tower with a jettied platform under a thatched cap.",
+    "file": "models/watchtower.glb",
+    "triangles": 1058,
+    "bytes": 84036,
+    "yaw": 0.7,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "gate",
+    "group": "buildings",
+    "label": "Timber gate",
+    "note": "Gate tower on four posts with a boarded fighting platform and shingled roof.",
+    "file": "models/gate.glb",
+    "triangles": 948,
+    "bytes": 77172,
+    "yaw": -0.42,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "palisade",
+    "group": "buildings",
+    "label": "Palisade wall",
+    "note": "Sharpened oak stakes on an earth bank, with a fighting step behind. 4 m module.",
+    "file": "models/palisade.glb",
+    "triangles": 340,
+    "bytes": 30608,
+    "yaw": 0.6,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "trebuchet",
+    "group": "buildings",
+    "label": "Traction trebuchet",
+    "note": "Crew-hauled stone-thrower. The counterweight type only appears in the late 12th century.",
+    "file": "models/trebuchet.glb",
+    "triangles": 618,
+    "bytes": 53244,
+    "yaw": 0.9,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "oak",
+    "group": "nature",
+    "label": "Oak",
+    "note": "Open-grown oak with a short bole and broad crown. Neutral, so no team colour.",
+    "file": "models/oak.glb",
+    "triangles": 643,
+    "bytes": 71332,
+    "yaw": 0.4,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "conifer",
+    "group": "nature",
+    "label": "Conifer",
+    "note": "Fir or spruce in drooping tiers. Neutral, so no team colour.",
+    "file": "models/conifer.glb",
+    "triangles": 112,
+    "bytes": 13248,
+    "yaw": 0.3,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  }
+]

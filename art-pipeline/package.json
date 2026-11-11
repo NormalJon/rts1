@@ -1,0 +1,14 @@
+{
+  "name": "art-pipeline",
+  "private": true,
+  "type": "module",
+  "description": "Code-generated placeholder art: low-poly glTF models, SVG icons and a sample sheet.",
+  "scripts": {
+    "build": "node src/build.mjs",
+    "shots": "node scripts/screenshot.mjs"
+  },
+  "devDependencies": {
+    "gltf-validator": "^2.0.0-dev.3.10",
+    "three": "0.128.0"
+  }
+}
