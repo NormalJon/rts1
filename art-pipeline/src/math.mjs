@@ -91,6 +91,16 @@ export function qEuler(x = 0, y = 0, z = 0) {
   return [q[0] / l, q[1] / l, q[2] / l, q[3] / l];
 }
 
+/** Rotation matrix of a unit quaternion. */
+export function qMatrix([x, y, z, w]) {
+  return [
+    1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0,
+    2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w), 0,
+    2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y), 0,
+    0, 0, 0, 1,
+  ];
+}
+
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {

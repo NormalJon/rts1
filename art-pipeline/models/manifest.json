@@ -7,6 +7,18 @@
     "file": "models/spearman.glb",
     "triangles": 396,
     "bytes": 56628,
+    "bounds": {
+      "min": [
+        -0.38,
+        0,
+        -0.21
+      ],
+      "max": [
+        0.616,
+        2.7,
+        0.457
+      ]
+    },
     "yaw": 0.55,
     "clips": [
       "idle",
@@ -28,6 +40,18 @@
     "file": "models/villager.glb",
     "triangles": 300,
     "bytes": 49412,
+    "bounds": {
+      "min": [
+        -0.38,
+        0,
+        -0.254
+      ],
+      "max": [
+        0.38,
+        1.956,
+        0.391
+      ]
+    },
     "yaw": 0.55,
     "clips": [
       "idle",
@@ -45,11 +69,24 @@
     "id": "house",
     "group": "buildings",
     "label": "Peasant house",
-    "note": "Timber posts, wattle-and-daub, thatch. No chimney: smoke left through the roof.",
+    "note": "Small house of c. 900: timber posts, wattle-and-daub, thatch, a fenced toft with a garden bed. No chimney. 3 by 3 tile plot.",
     "file": "models/house.glb",
-    "triangles": 1186,
-    "bytes": 92356,
-    "yaw": -0.95,
+    "triangles": 888,
+    "bytes": 71828,
+    "bounds": {
+      "min": [
+        -2.78,
+        0,
+        -2.8
+      ],
+      "max": [
+        2.78,
+        4.445,
+        2.8
+      ]
+    },
+    "plot": 3,
+    "yaw": -0.5,
     "clips": [],
     "validator": {
       "errors": 0,
@@ -66,7 +103,140 @@
     "file": "models/hall.glb",
     "triangles": 1409,
     "bytes": 110100,
+    "bounds": {
+      "min": [
+        -4.58,
+        -0.074,
+        -4.526
+      ],
+      "max": [
+        4.58,
+        7.02,
+        4.58
+      ]
+    },
+    "plot": 5,
     "yaw": -0.6,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "barracks",
+    "group": "buildings",
+    "label": "Barracks",
+    "note": "Plain longhouse under hipped thatch, with a drill yard: practice posts, a straw man, spears and shields. Trains spearmen on a 5 by 5 tile plot.",
+    "file": "models/barracks.glb",
+    "triangles": 1096,
+    "bytes": 85828,
+    "bounds": {
+      "min": [
+        -4.58,
+        -0.021,
+        -4.6
+      ],
+      "max": [
+        4.58,
+        4.424,
+        4.59
+      ]
+    },
+    "plot": 5,
+    "yaw": -0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "lumber-camp",
+    "group": "buildings",
+    "label": "Lumber camp",
+    "note": "Open shed under riven boards, with felled trunks, cordwood and a sawhorse. Where wood is brought. 3 by 3 tile plot.",
+    "file": "models/lumber-camp.glb",
+    "triangles": 881,
+    "bytes": 68092,
+    "bounds": {
+      "min": [
+        -2.79,
+        -0.028,
+        -2.78
+      ],
+      "max": [
+        2.72,
+        3.34,
+        2.72
+      ]
+    },
+    "plot": 3,
+    "yaw": 0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "mill",
+    "group": "buildings",
+    "label": "Mill",
+    "note": "Granary raised on posts with a hand quern, sacks and baskets: there is no windmill before the late 12th century. 3 by 3 tile plot.",
+    "file": "models/mill.glb",
+    "triangles": 832,
+    "bytes": 66324,
+    "bounds": {
+      "min": [
+        -2.7,
+        -0.041,
+        -2.8
+      ],
+      "max": [
+        2.7,
+        5.259,
+        2.74
+      ]
+    },
+    "plot": 3,
+    "yaw": 0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "mining-camp",
+    "group": "buildings",
+    "label": "Mining camp",
+    "note": "Pole lean-to roofed with bark slabs, with cut blocks, ore baskets, a handcart and a pick. Where stone and gold are brought. 3 by 3 tile plot.",
+    "file": "models/mining-camp.glb",
+    "triangles": 792,
+    "bytes": 63616,
+    "bounds": {
+      "min": [
+        -2.78,
+        -0.017,
+        -2.82
+      ],
+      "max": [
+        2.72,
+        3,
+        2.72
+      ]
+    },
+    "plot": 3,
+    "yaw": 0.5,
     "clips": [],
     "validator": {
       "errors": 0,
@@ -83,6 +253,18 @@
     "file": "models/keep.glb",
     "triangles": 1445,
     "bytes": 112376,
+    "bounds": {
+      "min": [
+        -5.05,
+        0,
+        -5.05
+      ],
+      "max": [
+        7.5,
+        20.55,
+        5.1
+      ]
+    },
     "yaw": -0.7,
     "clips": [],
     "validator": {
@@ -100,6 +282,18 @@
     "file": "models/watchtower.glb",
     "triangles": 1058,
     "bytes": 84036,
+    "bounds": {
+      "min": [
+        -2.25,
+        -0.027,
+        -3.239
+      ],
+      "max": [
+        2.25,
+        11.8,
+        2.25
+      ]
+    },
     "yaw": 0.7,
     "clips": [],
     "validator": {
@@ -117,6 +311,18 @@
     "file": "models/gate.glb",
     "triangles": 948,
     "bytes": 77172,
+    "bounds": {
+      "min": [
+        -3.2,
+        0,
+        -1.85
+      ],
+      "max": [
+        3.2,
+        8.5,
+        1.85
+      ]
+    },
     "yaw": -0.42,
     "clips": [],
     "validator": {
@@ -134,6 +340,18 @@
     "file": "models/palisade.glb",
     "triangles": 340,
     "bytes": 30608,
+    "bounds": {
+      "min": [
+        -2,
+        0,
+        -1.1
+      ],
+      "max": [
+        2.01,
+        4.6,
+        1.13
+      ]
+    },
     "yaw": 0.6,
     "clips": [],
     "validator": {
@@ -151,6 +369,18 @@
     "file": "models/trebuchet.glb",
     "triangles": 618,
     "bytes": 53244,
+    "bounds": {
+      "min": [
+        -1.25,
+        -0.004,
+        -3.45
+      ],
+      "max": [
+        2.278,
+        5,
+        1.8
+      ]
+    },
     "yaw": 0.9,
     "clips": [],
     "validator": {
@@ -168,6 +398,18 @@
     "file": "models/oak.glb",
     "triangles": 643,
     "bytes": 71332,
+    "bounds": {
+      "min": [
+        -3.134,
+        0,
+        -3.256
+      ],
+      "max": [
+        3.142,
+        6.993,
+        3.148
+      ]
+    },
     "yaw": 0.4,
     "clips": [],
     "validator": {
@@ -185,6 +427,18 @@
     "file": "models/conifer.glb",
     "triangles": 112,
     "bytes": 13248,
+    "bounds": {
+      "min": [
+        -1.626,
+        0,
+        -1.749
+      ],
+      "max": [
+        1.729,
+        7.1,
+        1.642
+      ]
+    },
     "yaw": 0.3,
     "clips": [],
     "validator": {
@@ -202,6 +456,18 @@
     "file": "models/berry-bush.glb",
     "triangles": 189,
     "bytes": 22712,
+    "bounds": {
+      "min": [
+        -0.757,
+        -0.03,
+        -0.684
+      ],
+      "max": [
+        0.702,
+        1.1,
+        0.677
+      ]
+    },
     "yaw": 0.5,
     "clips": [],
     "validator": {
@@ -219,6 +485,18 @@
     "file": "models/stone-deposit.glb",
     "triangles": 111,
     "bytes": 9864,
+    "bounds": {
+      "min": [
+        -0.854,
+        -0.06,
+        -0.835
+      ],
+      "max": [
+        0.887,
+        1.372,
+        0.912
+      ]
+    },
     "yaw": 0.5,
     "clips": [],
     "validator": {
@@ -236,6 +514,18 @@
     "file": "models/gold-deposit.glb",
     "triangles": 167,
     "bytes": 14088,
+    "bounds": {
+      "min": [
+        -0.889,
+        -0.06,
+        -0.86
+      ],
+      "max": [
+        0.872,
+        1.197,
+        0.862
+      ]
+    },
     "yaw": 0.5,
     "clips": [],
     "validator": {

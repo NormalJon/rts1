@@ -7,47 +7,7 @@
 import { MeshBuilder } from '../mesh.mjs';
 import { T, RX, RY } from '../math.mjs';
 import { C } from '../palette.mjs';
-import { pennant, hangingBanner } from './parts.mjs';
-
-/**
- * A gable roof seen end on, ridge along local Z. `run` and `rise` are measured on the top
- * surface from eave to ridge. Returns a function giving the point on slope s (-1 or 1) at
- * u (0 at the eave, 1 at the ridge) and `off` metres out from the surface, square to it.
- */
-function pitch({ run, rise, eaveY }) {
-  const sl = Math.hypot(run, rise);
-  const on = (s, u, off = 0) => [s * run * (1 - u) + ((s * rise) / sl) * off, eaveY + rise * u + (run / sl) * off];
-  return Object.assign(on, { sl });
-}
-
-/**
- * Thatch on both slopes, laid as on the house: overlapping courses, each butt edge proud of
- * the one below, under a darker ridge roll. Returns the height of the roll above the surface.
- */
-function thatch(m, roof, { z0, z1, thick, courses, step = 0.06, roll = 0.16, back = true }) {
-  const on = pitch(roof);
-  const perp = thick * (roof.run / on.sl); // slab thickness measured square to the slope
-  const top = step * (courses.length - 1);
-  const u = 1 - (roll * 4.2) / on.sl;
-  for (const s of [-1, 1]) {
-    courses.forEach(([u0, u1, col], k) => {
-      const lift = step * k;
-      m.color(col, 0.05).extrude([on(s, u0, lift), on(s, u1, lift), on(s, u1, -perp), on(s, u0, -perp)], z0 - 0.02 * k, z1 + 0.02 * k, { back });
-    });
-    m.color(C.thatchDark, 0.05).extrude([on(s, u, top + roll), on(s, 1.02, top + roll), on(s, 1.02, top - 0.05), on(s, u, top - 0.05)], z0 - 0.06, z1 + 0.06, { back });
-  }
-  return { top: top + roll, from: u };
-}
-
-/** Gable boards at one end of a roof, lapped where they cross and carried on above the ridge. */
-function gableBoards(m, roof, z, { out = 1, past = 0.17, w = 0.1, d = 0.24 } = {}) {
-  const on = pitch(roof);
-  m.color(C.timber, 0.06);
-  [-1, 1].forEach((s, k) => {
-    const at = (u) => [...on(s, u, -d * 0.35), z + out * w * (0.5 + 0.5 * k)];
-    m.beam(at(-0.01), at(1 + past), w, d);
-  });
-}
+import { pennant, hangingBanner, pitch, thatch, gableBoards } from './parts.mjs';
 
 export function build() {
   const m = new MeshBuilder(17);
@@ -212,6 +172,7 @@ export function build() {
     label: 'Great hall',
     note: 'Timber hall of a lord or village, c. 900: plank walls, steep thatch, crossed gable boards. Town centre on a 5 by 5 tile plot.',
     yaw: -0.6,
+    plot: 5,
     roots: [{ name: 'hall', mesh: m.toMesh('hall') }],
   };
 }

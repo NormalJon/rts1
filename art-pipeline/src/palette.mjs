@@ -45,4 +45,9 @@ export const C = {
   oreDark: '#48433d',
   gold: '#c99a2c',
   goldLight: '#e0b849',
+  wicker: '#9a7b4b',
+  grain: '#d9b65a',
+  sack: '#c9b88f',
+  loam: '#5f4d38',
+  leaf: '#5d8a3f',
 };

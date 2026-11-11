@@ -74,6 +74,156 @@ async function cardShot(page, id, name) {
   console.log(`  ${name}.png`);
 }
 
+// ---- Scenes: models set out on grass and lit as in the game -----------------------
+
+/**
+ * A page that sets `items` out on the game's grass, with tile lines every 2 m.
+ *   items     [{ id, x, z, rot?, scale?, team? }]
+ *   outlines  [{ x, z, half, color? }] squares drawn on the ground, such as a building plot
+ * It exposes window.__scene, a promise of render(views). A view is { x, z, distance } with
+ * optional pitch, yaw, fov and rect ([left, top, width, height] as shares of the canvas, for
+ * several views in one picture). The default is the game camera: 0.96 rad above the horizon,
+ * a 30 degree lens, looking from +Z.
+ */
+function scenePage(items, outlines = []) {
+  const glb = {};
+  for (const { id } of items) glb[id] ??= readFileSync(join(root, 'models', `${id}.glb`)).toString('base64');
+  return `<!doctype html><html><body style="margin:0;overflow:hidden"><canvas id="c"></canvas>
+${Object.keys(local).map((src) => `<script src="${src}"></script>`).join('\n')}
+<script>
+window.__scene = (async function () {
+  var ITEMS = ${JSON.stringify(items)}, OUTLINES = ${JSON.stringify(outlines)}, GLB = ${JSON.stringify(glb)};
+  var renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  function linear(hex) { return new THREE.Color(hex).convertSRGBToLinear(); }
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color('#7f9b58'); // the game's grass; a clear colour is not converted, so no linear()
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7163, 0.72));
+  var sun = new THREE.DirectionalLight(0xfff1dc, 0.95);
+  sun.position.set(-40, 80, 52);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(4096, 4096);
+  var sc = sun.shadow.camera;
+  sc.left = sc.bottom = -34; sc.right = sc.top = 34; sc.near = 1; sc.far = 260;
+  sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.05;
+  scene.add(sun, sun.target);
+  var grass = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.ShadowMaterial({ opacity: 0.26 }));
+  grass.rotation.x = -Math.PI / 2;
+  grass.receiveShadow = true;
+  scene.add(grass);
+  // Tile lines every 2 m; tile centres fall on even coordinates.
+  var pts = [];
+  for (var i = -15; i <= 15; i++) pts.push(new THREE.Vector3(i * 2 - 1, 0.02, -31), new THREE.Vector3(i * 2 - 1, 0.02, 29), new THREE.Vector3(-31, 0.02, i * 2 - 1), new THREE.Vector3(29, 0.02, i * 2 - 1));
+  scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x24301a, transparent: true, opacity: 0.16 })));
+  OUTLINES.forEach(function (o) {
+    var h = o.half, y = 0.025;
+    var square = [[-h, -h], [h, -h], [h, h], [-h, h]].map(function (c) { return new THREE.Vector3(o.x + c[0], y, o.z + c[1]); });
+    scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(square), new THREE.LineBasicMaterial({ color: o.color || '#24301a', transparent: true, opacity: o.opacity || 0.55 })));
+  });
+  var loader = new THREE.GLTFLoader();
+  function parse(id) {
+    return new Promise(function (resolve, reject) {
+      var bin = atob(GLB[id]), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      loader.parse(bytes.buffer, '', resolve, reject);
+    });
+  }
+  for (var k = 0; k < ITEMS.length; k++) {
+    var it = ITEMS[k], model = (await parse(it.id)).scene;
+    model.traverse(function (o) {
+      if (!o.isMesh) return;
+      o.castShadow = o.receiveShadow = true;
+      if (o.material.name === 'TeamColor') o.material.color.copy(linear(it.team || '#2c5aa8'));
+    });
+    model.position.set(it.x, 0, it.z);
+    model.rotation.y = it.rot || 0;
+    model.scale.setScalar(it.scale || 1);
+    scene.add(model);
+  }
+  var camera = new THREE.PerspectiveCamera(30, 1, 2, 2500);
+  return function (views) {
+    var W = window.innerWidth, H = window.innerHeight;
+    renderer.setScissorTest(true);
+    views.forEach(function (v) {
+      var r = v.rect || [0, 0, 1, 1], w = r[2] * W, h = r[3] * H;
+      var pitch = v.pitch == null ? 0.96 : v.pitch, yaw = v.yaw || 0;
+      camera.fov = v.fov || 30;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      camera.position.set(v.x + Math.sin(yaw) * Math.cos(pitch) * v.distance, Math.sin(pitch) * v.distance, v.z + Math.cos(yaw) * Math.cos(pitch) * v.distance);
+      camera.lookAt(v.x, v.y || 0, v.z);
+      // WebGL measures a viewport from the bottom left.
+      renderer.setViewport(r[0] * W, (1 - r[1] - r[3]) * H, w, h);
+      renderer.setScissor(r[0] * W, (1 - r[1] - r[3]) * H, w, h);
+      renderer.render(scene, camera);
+    });
+  };
+})();
+</script></body></html>`;
+}
+
+/** Open a scene page; the returned shot(name, views) renders the views and saves the picture. */
+async function openScene(items, outlines, viewport = { width: 1600, height: 1000 }) {
+  const scenePath = join(shots, '_scene.html');
+  writeFileSync(scenePath, scenePage(items, outlines));
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  page.on('console', (m) => { if (m.type() === 'error') console.log('  console error:', m.text()); });
+  page.on('pageerror', (e) => console.log('  page error:', e.message));
+  await page.route('**/*', (route) => {
+    const url = route.request().url();
+    if (local[url]) return route.fulfill({ path: local[url], contentType: 'application/javascript' });
+    return url.startsWith('file:') ? route.continue() : route.abort();
+  });
+  await page.goto(pathToFileURL(scenePath).href);
+  return {
+    async shot(name, views) {
+      await page.evaluate(async (v) => (await window.__scene)(v), views);
+      await page.screenshot({ path: join(shots, `${name}.png`) });
+      console.log(`  ${name}.png`);
+    },
+    async close() {
+      await ctx.close();
+      rmSync(scenePath, { force: true });
+    },
+  };
+}
+
+// How far a vertex may be from the middle of a plot of that many tiles: see src/build.mjs.
+const PLOT_LIMIT = { 3: 2.85, 5: 4.7 };
+const manifest = JSON.parse(readFileSync(join(root, 'models', 'manifest.json'), 'utf8'));
+const plotOf = Object.fromEntries(manifest.filter((m) => m.plot).map((m) => [m.id, m.plot]));
+/** The plot of a building at x, z as two squares: the tiles it takes, and the limit inside them. */
+const plotOutlines = (id, x = 0, z = 0) => [
+  { x, z, half: plotOf[id], color: '#1d2616', opacity: 0.7 },
+  { x, z, half: PLOT_LIMIT[plotOf[id]], color: '#f4f0df', opacity: 0.6 },
+];
+
+// `review <id> ...`: each building alone on its plot, four views in one picture: the game
+// camera, two lower three-quarter views, and a plan. A villager stands beside it for scale.
+// The dark square is the edge of the plot, the pale one the limit the model must keep inside.
+if (only[0] === 'review') {
+  const ids = only.length > 1 ? only.slice(1) : Object.keys(plotOf);
+  for (const id of ids) {
+    if (!plotOf[id]) throw new Error(`${id} has no plot in models/manifest.json`);
+    const half = plotOf[id], d = half * 5.6;
+    const scene = await openScene([{ id, x: 0, z: 0 }, { id: 'villager', x: half + 1, z: half - 1, rot: -0.6 }], plotOutlines(id), { width: 1800, height: 1300 });
+    await scene.shot(`review-${id}`, [
+      { x: 0, z: 0.4, distance: d, rect: [0, 0, 0.5, 0.5] },
+      { x: 0, z: 0, y: 1, distance: d, yaw: 0.65, pitch: 0.5, rect: [0.5, 0, 0.5, 0.5] },
+      { x: 0, z: 0, y: 1, distance: d, yaw: -0.75, pitch: 0.3, rect: [0, 0.5, 0.5, 0.5] },
+      { x: 0, z: 0, distance: d * 1.05, pitch: 1.565, rect: [0.5, 0.5, 0.5, 0.5] },
+    ]);
+    await scene.close();
+  }
+  await browser.close();
+  rmSync(previewPath, { force: true });
+  process.exit(0);
+}
+
 if (only[0] === 'view') {
   const [, id, yaw, pitch, name = `view-${id}`] = only;
   const { ctx, page } = await open({ width: 1500, height: 1000 });
@@ -120,12 +270,14 @@ if (only.length === 0 || only.some((n) => n.startsWith('model') || n === 'closeu
   // The RTS view: the same models from a high camera.
   for (const id of ids) await page.evaluate((i) => window.__sheet.view(i, 0.6, 0.95), id);
   await settle(page);
-  for (const id of ['house', 'hall', 'keep', 'spearman', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
+  for (const id of ['house', 'hall', 'barracks', 'lumber-camp', 'mill', 'mining-camp', 'keep', 'spearman', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
     await cardShot(page, id, `model-${id}-high`);
   }
-  // The hall square on from its porch side, which is how the game camera meets an unturned building.
-  await page.evaluate(() => window.__sheet.view('hall', 0, 0.96));
-  await cardShot(page, 'hall', 'model-hall-front-high');
+  // Buildings square on from the front, which is how the game camera meets an unturned building.
+  for (const id of Object.keys(plotOf)) {
+    await page.evaluate((i) => window.__sheet.view(i, 0, 0.96), id);
+    await cardShot(page, id, `model-${id}-front-high`);
+  }
   for (const id of ids) await page.evaluate((i) => window.__sheet.view(i, 0.55, 0.42), id);
 
   // Animation stills.
@@ -150,9 +302,9 @@ if (want('icons') || only.length === 0) {
   await ctx.close();
 }
 
-// Map objects as the game lays them out: on grass, from the game camera (0.96 rad above the
-// horizon, 30 degree lens, looking from +Z), the deposits and bushes on neighbouring 2 m tiles,
-// each turned in quarter steps and scaled 0.85 to 1.1, with the hall on its 5 x 5 tile plot.
+// Map objects as the game lays them out: on grass, from the game camera, the deposits and
+// bushes on neighbouring 2 m tiles, each turned in quarter steps and scaled 0.85 to 1.1, with
+// the hall on its 5 x 5 tile plot.
 if (want('scene') || only.length === 0) {
   const rng = mulberry32(7);
   const items = [{ id: 'hall', x: 0, z: 0 }];
@@ -165,86 +317,27 @@ if (want('scene') || only.length === 0) {
   items.push({ id: 'oak', x: 12, z: -10 }, { id: 'conifer', x: -13, z: -9 }, { id: 'conifer', x: 15, z: 9 });
   for (const [x, z, rot] of [[-6.5, 6.5, 2], [-5.5, 12.8, 0.5], [1, 6.5, 3], [-1.2, 8, 0.4], [13, 5.2, -1]]) items.push({ id: 'villager', x, z, rot });
   items.push({ id: 'spearman', x: 2.6, z: 7.2, rot: 0.3 }, { id: 'spearman', x: 9, z: 9, rot: -2, team: '#b3312c' });
-  const glb = {};
-  for (const { id } of items) glb[id] ??= readFileSync(join(root, 'models', `${id}.glb`)).toString('base64');
-
-  const scenePath = join(shots, '_scene.html');
-  writeFileSync(scenePath, `<!doctype html><html><body style="margin:0;overflow:hidden"><canvas id="c"></canvas>
-${Object.keys(local).map((src) => `<script src="${src}"></script>`).join('\n')}
-<script>
-window.__scene = (async function () {
-  var ITEMS = ${JSON.stringify(items)}, GLB = ${JSON.stringify(glb)};
-  var renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputEncoding = THREE.sRGBEncoding;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  function linear(hex) { return new THREE.Color(hex).convertSRGBToLinear(); }
-  var scene = new THREE.Scene();
-  scene.background = new THREE.Color('#7f9b58'); // the game's grass; a clear colour is not converted, so no linear()
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7163, 0.72));
-  var sun = new THREE.DirectionalLight(0xfff1dc, 0.95);
-  sun.position.set(-40, 80, 52);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
-  var sc = sun.shadow.camera;
-  sc.left = sc.bottom = -34; sc.right = sc.top = 34; sc.near = 1; sc.far = 260;
-  sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.05;
-  scene.add(sun, sun.target);
-  var grass = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.ShadowMaterial({ opacity: 0.26 }));
-  grass.rotation.x = -Math.PI / 2;
-  grass.receiveShadow = true;
-  scene.add(grass);
-  // Tile lines every 2 m; tile centres fall on even coordinates.
-  var pts = [];
-  for (var i = -15; i <= 15; i++) pts.push(new THREE.Vector3(i * 2 - 1, 0.02, -31), new THREE.Vector3(i * 2 - 1, 0.02, 29), new THREE.Vector3(-31, 0.02, i * 2 - 1), new THREE.Vector3(29, 0.02, i * 2 - 1));
-  scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x24301a, transparent: true, opacity: 0.16 })));
-  var loader = new THREE.GLTFLoader();
-  function parse(id) {
-    return new Promise(function (resolve, reject) {
-      var bin = atob(GLB[id]), bytes = new Uint8Array(bin.length);
-      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      loader.parse(bytes.buffer, '', resolve, reject);
-    });
-  }
-  for (var k = 0; k < ITEMS.length; k++) {
-    var it = ITEMS[k], model = (await parse(it.id)).scene;
-    model.traverse(function (o) {
-      if (!o.isMesh) return;
-      o.castShadow = o.receiveShadow = true;
-      if (o.material.name === 'TeamColor') o.material.color.copy(linear(it.team || '#2c5aa8'));
-    });
-    model.position.set(it.x, 0, it.z);
-    model.rotation.y = it.rot || 0;
-    model.scale.setScalar(it.scale || 1);
-    scene.add(model);
-  }
-  var camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 2, 2500);
-  return function (distance) {
-    camera.position.set(-1, Math.sin(0.96) * distance, 2.5 + Math.cos(0.96) * distance);
-    camera.lookAt(-1, 0, 2.5);
-    renderer.render(scene, camera);
-  };
-})();
-</script></body></html>`);
-  const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
-  const page = await ctx.newPage();
-  page.on('console', (m) => { if (m.type() === 'error') console.log('  console error:', m.text()); });
-  page.on('pageerror', (e) => console.log('  page error:', e.message));
-  await page.route('**/*', (route) => {
-    const url = route.request().url();
-    if (local[url]) return route.fulfill({ path: local[url], contentType: 'application/javascript' });
-    return url.startsWith('file:') ? route.continue() : route.abort();
-  });
-  await page.goto(pathToFileURL(scenePath).href);
+  const scene = await openScene(items);
   // 47 m is a middling zoom; 190 m is as far out as the game camera goes.
-  for (const [name, distance] of [['scene-game-view', 47], ['scene-game-view-far', 190]]) {
-    await page.evaluate(async (d) => (await window.__scene)(d), distance);
-    await page.screenshot({ path: join(shots, `${name}.png`) });
-    console.log(`  ${name}.png`);
-  }
-  await ctx.close();
-  rmSync(scenePath, { force: true });
+  for (const [name, distance] of [['scene-game-view', 47], ['scene-game-view-far', 190]]) await scene.shot(name, [{ x: -1, z: 2.5, distance }]);
+  await scene.close();
+}
+
+// A first-age village from the game camera: every building unturned on its own plot of 2 m
+// tiles, which is outlined, with villagers and spearmen among them for scale.
+if (want('scene') || want('village') || only.length === 0) {
+  const buildings = [
+    { id: 'barracks', x: -12, z: -6 }, { id: 'hall', x: 0, z: -6 }, { id: 'mill', x: 10, z: -4 },
+    { id: 'house', x: -10, z: 4 }, { id: 'lumber-camp', x: -2, z: 4 }, { id: 'mining-camp', x: 6, z: 4 }, { id: 'house', x: 14, z: 4, team: '#b3312c' },
+  ];
+  const items = [...buildings];
+  for (const [x, z, rot] of [[-6.2, 0.2, 1.2], [1.6, 0.1, -0.4], [2.2, 8.6, 2.6], [-5.8, 8.2, 0.5], [10.2, 0.6, 0.3], [9.4, 9.2, -2.2]]) items.push({ id: 'villager', x, z, rot });
+  items.push({ id: 'spearman', x: -12.6, z: 0.4, rot: 0.2 }, { id: 'spearman', x: -10.9, z: 0.1, rot: -0.3 });
+  items.push({ id: 'conifer', x: -17, z: 9 }, { id: 'oak', x: 17.5, z: -9.5 });
+  const scene = await openScene(items, buildings.map(({ id, x, z }) => plotOutlines(id, x, z)[0]));
+  await scene.shot('scene-village', [{ x: 0.5, z: -0.6, distance: 46 }]);
+  await scene.shot('scene-village-far', [{ x: 0.5, z: -0.6, distance: 110 }]);
+  await scene.close();
 }
 
 await browser.close();

@@ -4,8 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { writeGLB } from './glb.mjs';
+import { identity, mul, T, qMatrix, transformPoint } from './math.mjs';
 import { build as house } from './models/house.mjs';
 import { build as hall } from './models/hall.mjs';
+import { build as barracks } from './models/barracks.mjs';
+import { build as lumberCamp } from './models/lumber-camp.mjs';
+import { build as mill } from './models/mill.mjs';
+import { build as miningCamp } from './models/mining-camp.mjs';
 import { build as keep } from './models/keep.mjs';
 import { buildWall, buildGate } from './models/palisade.mjs';
 import { build as watchtower } from './models/watchtower.mjs';
@@ -24,10 +29,37 @@ mkdirSync(out, { recursive: true });
 
 const GROUPS = [
   { key: 'units', title: 'Units', blurb: 'Ten rigid parts on a joint hierarchy, animated by rotating the joints. Nothing bends: there is no skinning.', builders: [spearman, villager] },
-  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, hall, keep, watchtower, buildGate, buildWall, trebuchet] },
+  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, hall, barracks, lumberCamp, mill, miningCamp, keep, watchtower, buildGate, buildWall, trebuchet] },
   { key: 'nature', title: 'Trees', blurb: 'Neutral map objects, so they carry no team colour.', builders: [buildOak, buildConifer] },
   { key: 'resources', title: 'Resources', blurb: 'What villagers gather. Each fits one 2 m tile and carries no team colour.', builders: [berryBush, buildStone, buildGold] },
 ];
+
+// A building stands on a square plot of 2 m tiles, and the whole model has to stay inside it
+// with a little margin: this is how far a vertex may be from the origin in x or z.
+const PLOT_LIMIT = { 3: 2.85, 5: 4.7 };
+
+/** Bounding box over every vertex in model space, the nodes in their rest pose. */
+function bounds(roots) {
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  const visit = (node, parent) => {
+    let M = parent;
+    if (node.translation) M = mul(M, T(...node.translation));
+    if (node.rotation) M = mul(M, qMatrix(node.rotation));
+    for (const { positions } of node.mesh?.primitives ?? []) {
+      for (let i = 0; i < positions.length; i += 3) {
+        const p = transformPoint(M, [positions[i], positions[i + 1], positions[i + 2]]);
+        for (let k = 0; k < 3; k++) {
+          if (p[k] < min[k]) min[k] = p[k];
+          if (p[k] > max[k]) max[k] = p[k];
+        }
+      }
+    }
+    for (const child of node.children ?? []) visit(child, M);
+  };
+  for (const node of roots) visit(node, identity());
+  const round = (v) => v.map((n) => Math.round(n * 1000) / 1000);
+  return { min: round(min), max: round(max) };
+}
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const fmt = (n) => n.toLocaleString('en-US');
@@ -48,6 +80,16 @@ for (const group of GROUPS) {
       console.error(`${model.id}: ${numErrors} errors, ${numWarnings} warnings`);
       for (const msg of messages.slice(0, 8)) console.error(`  [${msg.severity}] ${msg.code} ${msg.pointer ?? ''} ${msg.message}`);
     }
+    const box = bounds(model.roots);
+    if (model.plot) {
+      const limit = PLOT_LIMIT[model.plot];
+      if (!limit) throw new Error(`${model.id}: no size limit known for a ${model.plot} tile plot`);
+      const reach = Math.max(-box.min[0], box.max[0], -box.min[2], box.max[2]);
+      if (reach > limit) {
+        problems++;
+        console.error(`${model.id}: reaches ${reach.toFixed(3)} m from the origin, over the ${limit} m limit of a ${model.plot} x ${model.plot} tile plot`);
+      }
+    }
     const entry = {
       id: model.id,
       group: group.key,
@@ -56,6 +98,8 @@ for (const group of GROUPS) {
       file: `models/${model.id}.glb`,
       triangles,
       bytes: glb.length,
+      bounds: box,
+      ...(model.plot ? { plot: model.plot } : {}),
       yaw: model.yaw ?? 0.6,
       clips: (model.animations ?? []).map((a) => a.name),
       validator: { errors: numErrors, warnings: numWarnings, infos: numInfos, hints: numHints },
@@ -66,6 +110,12 @@ for (const group of GROUPS) {
   }
 }
 writeFileSync(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+
+console.log('\nPlots (2 m tiles): bounding box over all vertices, x y z in metres');
+for (const m of manifest.filter((e) => e.plot)) {
+  const f = (v) => v.map((n) => n.toFixed(2).padStart(6)).join(' ');
+  console.log(`${m.id.padEnd(13)} ${m.plot} x ${m.plot}, limit ${PLOT_LIMIT[m.plot].toFixed(2)}  min ${f(m.bounds.min)}  max ${f(m.bounds.max)}`);
+}
 
 // ---- Sample sheet ----------------------------------------------------------------
 
@@ -139,6 +189,6 @@ writeFileSync(join(root, 'sample-sheet.html'), page);
 console.log(`\n${manifest.length} models, ${fmt(totalTris)} triangles in total, ${iconCount} icons`);
 console.log(`sample-sheet.html: ${(page.length / 1024).toFixed(0)} KB`);
 if (problems) {
-  console.error(`\n${problems} model(s) failed validation`);
+  console.error(`\n${problems} problem(s): see the validator and plot messages above`);
   process.exit(1);
 }
