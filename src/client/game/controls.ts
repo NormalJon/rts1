@@ -34,7 +34,8 @@ export class Controls {
   private inspected: { tile: number } | { building: EntityId } | null = null;
   private idleCursor = 0;
   private idleShown = -1;
-  private frames = 0;
+  /** When the panel is next due a refresh. What villagers are doing changes without the player's say. */
+  private hudDue = 0;
 
   constructor(
     private readonly player: number,
@@ -237,6 +238,8 @@ export class Controls {
     const { world } = this.session;
     const target = this.view.pick(clientX, clientY);
     if (target === null) return;
+    // Show the result of the order as soon as the simulation has taken it up.
+    this.hudDue = performance.now() + 90;
     const units = [...this.selected];
     if (target.kind === 'tile' && resourceOfTerrain(world.map.terrain[target.tile]!) !== -1) {
       this.session.issue(this.player, { kind: 'gather', units, tile: target.tile });
@@ -398,8 +401,11 @@ export class Controls {
     if (this.keysDown.has('ArrowDown')) this.view.pan(0, step);
     const before = this.selected.size;
     this.dropTheDead();
-    // What villagers are doing changes without the player's say, so look again a few times a second.
-    if (this.selected.size !== before || ++this.frames % 12 === 0) this.refreshHud();
+    const now = performance.now();
+    if (this.selected.size !== before || now >= this.hudDue) {
+      this.hudDue = now + 250;
+      this.refreshHud();
+    }
   }
 
   private refreshHud(): void {

@@ -6,7 +6,7 @@
  */
 
 import type { Command, ScheduledCommand } from './commands';
-import { acceptsDeliveries, assignDelivery, assignGather } from './economy';
+import { acceptsDeliveries, assignDelivery, assignGather, spotsTakenExcept } from './economy';
 import { ENTITY_TYPES } from './entityTypes';
 import { clamp, fromRatio, HALF, idiv, isqrt, length, mul, mulDiv, ONE, type Fixed } from './fixed';
 import { beginOrder } from './routing';
@@ -62,9 +62,12 @@ function applyGather(world: World, player: number, command: Extract<Command, { k
   if (!Number.isInteger(tile) || tile < 0 || tile >= map.tileCount) return;
   // Units that cannot gather, and everyone if there is nothing there, just walk over.
   const walkers: number[] = [];
-  for (const slot of ownedSlots(world, player, command.units)) {
+  const slots = ownedSlots(world, player, command.units);
+  // Everyone in the order gives up their old place; they share out the free ones between them.
+  const taken = spotsTakenExcept(world, slots);
+  for (const slot of slots) {
     const gathers = ENTITY_TYPES[world.entityType[slot]!]!.carries > 0;
-    if (!gathers || !assignGather(world, slot, tile)) walkers.push(world.idAt(slot));
+    if (!gathers || !assignGather(world, slot, tile, taken)) walkers.push(world.idAt(slot));
   }
   if (walkers.length > 0) {
     applyMove(world, player, { kind: 'move', units: walkers, x: map.centreX(tile), y: map.centreY(tile) });

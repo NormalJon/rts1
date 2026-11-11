@@ -28,8 +28,15 @@ const MAX_TRIES = 3;
 const SIDE_STEP: Fixed = ONE >> 2;
 const LEAN_IN: Fixed = fromRatio(3, 20);
 
-/** Sets a villager to gathering from a resource tile. Returns false if there is nothing there to gather. */
-export function assignGather(world: World, slot: number, tile: number): boolean {
+/**
+ * Sets a villager to gathering from a resource tile. Returns false if there
+ * is nothing there to gather.
+ *
+ * @param taken  When a whole group is being set to work at once, the standing
+ *   places spoken for so far (see spotsTakenExcept), so the list is not
+ *   rebuilt for every villager. Each place handed out is added to it.
+ */
+export function assignGather(world: World, slot: number, tile: number, taken?: Set<number>): boolean {
   const { map } = world;
   const terrain = map.terrain[tile]!;
   const resource = resourceOfTerrain(terrain);
@@ -42,8 +49,20 @@ export function assignGather(world: World, slot: number, tile: number): boolean 
   const loaded = world.carry[slot]!;
   // A full load, or a load of something else, is handed in first.
   if (loaded >= capacity || (loaded > 0 && world.carryKind[slot] !== resource)) startDelivery(world, slot);
-  else goToResource(world, slot);
+  else goToResource(world, slot, taken);
   return true;
+}
+
+/** The standing places held by gatherers other than the given units. */
+export function spotsTakenExcept(world: World, slots: readonly number[]): Set<number> {
+  const skip = new Set(slots);
+  const taken = new Set<number>();
+  for (let slot = 0; slot < world.highWater; slot++) {
+    if (world.alive[slot] === 0 || skip.has(slot)) continue;
+    const job = world.job[slot];
+    if (job === Job.ToResource || job === Job.Harvesting) taken.add(world.jobSpot[slot]!);
+  }
+  return taken;
 }
 
 /** Sends a villager to hand in what it carries at a building. Afterwards it goes back to what it was gathering. */
@@ -164,17 +183,6 @@ function withinReach(world: World, slot: number, left: number, top: number, size
 
 // ---- Going to work ---------------------------------------------------------
 
-/** The standing places already spoken for by other gatherers. */
-function takenSpots(world: World, except: number): Set<number> {
-  const taken = new Set<number>();
-  for (let slot = 0; slot < world.highWater; slot++) {
-    if (slot === except || world.alive[slot] === 0) continue;
-    const job = world.job[slot];
-    if (job === Job.ToResource || job === Job.Harvesting) taken.add(world.jobSpot[slot]!);
-  }
-  return taken;
-}
-
 function spotX(world: World, spot: number, tile: number): Fixed {
   const { map } = world;
   const stand = spot >> 1;
@@ -226,11 +234,10 @@ function freeSpot(world: World, slot: number, tile: number, region: number, take
  * crowded, the nearest tile of the same kind with room. With nowhere left to
  * work it hands in what it has and stops.
  */
-function goToResource(world: World, slot: number): void {
+function goToResource(world: World, slot: number, taken: Set<number> = spotsTakenExcept(world, [slot])): void {
   const { map } = world;
   const terrain = world.jobTerrain[slot]!;
   const region = map.region[map.tileAt(world.posX[slot]!, world.posY[slot]!)]!;
-  const taken = takenSpots(world, slot);
   let tile = world.jobTile[slot]!;
   let spot = -1;
   if (tile >= 0 && map.terrain[tile] === terrain && map.amount[tile]! > 0) {
@@ -251,6 +258,7 @@ function goToResource(world: World, slot: number): void {
     else stopWorking(world, slot);
     return;
   }
+  taken.add(spot);
   world.jobTile[slot] = tile;
   world.jobSpot[slot] = spot;
   world.jobTimer[slot] = 0;
