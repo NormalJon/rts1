@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const EXPECTED = '6796d953'; // keep in step with test/determinism.test.ts
+const EXPECTED = '60dd234a'; // keep in step with test/determinism.test.ts
 
 const { outputFiles } = await build({
   stdin: {
@@ -20,8 +20,8 @@ const { outputFiles } = await build({
       import { hashHex } from './src/sim/hash';
       import { defaultConfig } from './src/sim/world';
       const config = defaultConfig({ seed: 20261111, playerCount: 2, map: { kind: 'generated' }, start: 'standard' });
-      const { hashes } = playRandomMatch(config, 77, 1500);
-      globalThis.__referenceChecksum = hashHex(hashes[1499]);
+      const { hashes } = playRandomMatch(config, 77, 2100);
+      globalThis.__referenceChecksum = hashHex(hashes[2099]);
     `,
     resolveDir: root,
     loader: 'ts',

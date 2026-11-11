@@ -1,3 +1,4 @@
+export * from './buildings';
 export * from './commands';
 export * from './economy';
 export * from './entityTypes';
@@ -5,6 +6,7 @@ export * from './fixed';
 export * from './hash';
 export * from './map';
 export * from './mapgen';
+export * from './production';
 export * from './replay';
 export * from './rng';
 export * from './sim';

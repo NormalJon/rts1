@@ -41,7 +41,7 @@ interface SavedSearch {
 }
 
 export interface WorldSnapshot {
-  readonly version: 3;
+  readonly version: 4;
   readonly config: SimConfig;
   readonly tick: number;
   readonly rng: RngState;
@@ -50,8 +50,9 @@ export interface WorldSnapshot {
   /** What is on each tile now, and how much of its resource is left. */
   readonly terrain: readonly number[];
   readonly amount: readonly number[];
-  /** Each player's stockpile. */
+  /** Each player's stockpile, and what they have spent. */
   readonly stock: readonly number[];
+  readonly spent: readonly number[];
   /** Each entity property by name, holding slots 0 to highWater - 1. */
   readonly columns: Readonly<Record<string, readonly number[]>>;
   /** Waypoint lists by slot, for units following their own path. */
@@ -76,7 +77,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
   }
   const active = world.activeSearch;
   return {
-    version: 3,
+    version: 4,
     config: { ...world.config },
     tick: world.tick,
     rng: world.rng.getState(),
@@ -85,6 +86,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
     terrain: Array.from(world.map.terrain),
     amount: Array.from(world.map.amount),
     stock: Array.from(world.stock),
+    spent: Array.from(world.spent),
     columns,
     paths,
     nextGroupId: world.nextGroupId,
@@ -113,7 +115,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
 }
 
 export function restoreSnapshot(snapshot: WorldSnapshot): World {
-  if (snapshot.version !== 3) {
+  if (snapshot.version !== 4) {
     throw new Error(`unsupported snapshot version ${String(snapshot.version)}`);
   }
   const world = new World(snapshot.config, true);
@@ -145,6 +147,7 @@ export function restoreSnapshot(snapshot: WorldSnapshot): World {
     world.map.setBuilding((world.posX[slot]! >> 16) - half, (world.posY[slot]! >> 16) - half, footprint, true);
   }
   world.stock.set(snapshot.stock);
+  world.spent.set(snapshot.spent);
   world.nextGroupId = snapshot.nextGroupId;
   for (const saved of [...snapshot.groups].sort((a, b) => a.id - b.id)) {
     const field = saved.field === null ? null : Uint8Array.from(saved.field);

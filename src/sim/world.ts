@@ -13,7 +13,7 @@ import type { GameMap } from './map';
 import { buildMap, type MapSpec } from './mapgen';
 import { Rng } from './rng';
 import { SearchScratch, type Search } from './search';
-import { ENTITY_TYPES, Kind, RESOURCE_COUNT } from './entityTypes';
+import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, TRAIN_QUEUE_LENGTH } from './entityTypes';
 import { perSecondToPerTick } from './units';
 
 export interface SimConfig {
@@ -98,6 +98,10 @@ export const Job = {
   Harvesting: 2,
   /** Carrying a load to a drop-off building. */
   ToDropOff: 3,
+  /** Walking to a building site. */
+  ToSite: 4,
+  /** At the site, building. */
+  Constructing: 5,
 } as const;
 
 export const STARTING_VILLAGERS = 6;
@@ -114,7 +118,8 @@ export const GroupStatus = { New: 0, Pending: 1, Ready: 2 } as const;
  */
 export interface MoveGroup {
   readonly id: number;
-  readonly goalTile: number;
+  /** Where the group is headed. Moves only if a building goes up on the spot. */
+  goalTile: number;
   /** The way the formation faces on arrival, as a unit vector. */
   readonly faceX: Fixed;
   readonly faceY: Fixed;
@@ -219,8 +224,24 @@ export class World {
   readonly carryKind: Uint8Array;
   readonly carry: Int32Array;
 
+  /** Buildings: 1 once construction is finished, and the work done toward that. */
+  readonly built: Uint8Array;
+  readonly buildPoints: Int32Array;
+  /** Buildings: the unit types waiting to be trained (each stored as type + 1), and how many. */
+  readonly trainQueue: Uint8Array;
+  readonly trainLength: Uint8Array;
+  /** Ticks spent on the unit at the head of the queue, and whether room in the population has been set aside for it. */
+  readonly trainTicks: Int32Array;
+  readonly trainStarted: Uint8Array;
+  /** Where newly trained units go: a point, or a resource tile to start work on. -1 for none. */
+  readonly rallyX: Int32Array;
+  readonly rallyY: Int32Array;
+  readonly rallyTile: Int32Array;
+
   /** Each player's stockpile: playerCount x 4, as food, wood, stone, gold. */
   readonly stock: Int32Array;
+  /** What each player has spent on units and buildings, less refunds, laid out like the stockpile. */
+  readonly spent: Int32Array;
 
   /** Waypoints (x, y pairs) for units following their own path. */
   readonly paths: (Int32Array | undefined)[] = [];
@@ -237,6 +258,8 @@ export class World {
   readonly scratchPushX: Int32Array;
   readonly scratchPushY: Int32Array;
   readonly scratchFlags: Uint8Array;
+  /** How many villagers have worked on each building site so far this tick. */
+  readonly scratchBuilders: Uint16Array;
   readonly cellStart: Int32Array;
   readonly cellItems: Int32Array;
 
@@ -301,7 +324,17 @@ export class World {
     this.jobTarget = this.column('jobTarget', new Int32Array(n));
     this.carryKind = this.column('carryKind', new Uint8Array(n));
     this.carry = this.column('carry', new Int32Array(n));
+    this.built = this.column('built', new Uint8Array(n));
+    this.buildPoints = this.column('buildPoints', new Int32Array(n));
+    this.trainQueue = this.column('trainQueue', new Uint8Array(n * TRAIN_QUEUE_LENGTH), TRAIN_QUEUE_LENGTH);
+    this.trainLength = this.column('trainLength', new Uint8Array(n));
+    this.trainTicks = this.column('trainTicks', new Int32Array(n));
+    this.trainStarted = this.column('trainStarted', new Uint8Array(n));
+    this.rallyX = this.column('rallyX', new Int32Array(n));
+    this.rallyY = this.column('rallyY', new Int32Array(n));
+    this.rallyTile = this.column('rallyTile', new Int32Array(n));
     this.stock = new Int32Array(config.playerCount * RESOURCE_COUNT);
+    this.spent = new Int32Array(config.playerCount * RESOURCE_COUNT);
 
     this.searchScratch = new SearchScratch(this.map.tileCount);
     this.scratchX = new Int32Array(n);
@@ -309,6 +342,7 @@ export class World {
     this.scratchPushX = new Int32Array(n);
     this.scratchPushY = new Int32Array(n);
     this.scratchFlags = new Uint8Array(n);
+    this.scratchBuilders = new Uint16Array(n);
     // The neighbour grid uses cells two tiles across.
     const cells = ((this.map.width + 1) >> 1) * ((this.map.height + 1) >> 1);
     this.cellStart = new Int32Array(cells + 1);
@@ -365,6 +399,9 @@ export class World {
     this.alive[slot] = 1;
     this.jobTile[slot] = -1;
     this.jobTarget[slot] = NO_ENTITY;
+    this.rallyX[slot] = -1;
+    this.rallyY[slot] = -1;
+    this.rallyTile[slot] = -1;
     return slot;
   }
 
@@ -395,9 +432,10 @@ export class World {
 
   /**
    * Puts up a building centred on a tile and returns its handle, or NO_ENTITY
-   * if the world is full. The ground it covers stops being passable.
+   * if the world is full. The ground it covers stops being passable at once,
+   * whether the building is finished or only a site waiting to be built.
    */
-  spawnBuilding(owner: number, entityType: number, tileX: number, tileY: number): EntityId {
+  spawnBuilding(owner: number, entityType: number, tileX: number, tileY: number, finished = true): EntityId {
     const type = ENTITY_TYPES[entityType];
     if (type === undefined || !type.building) throw new RangeError(`not a building type: ${entityType}`);
     const slot = this.claimSlot();
@@ -409,6 +447,10 @@ export class World {
     this.goalX[slot] = this.posX[slot]!;
     this.goalY[slot] = this.posY[slot]!;
     this.dirY[slot] = ONE;
+    if (finished) {
+      this.built[slot] = 1;
+      this.buildPoints[slot] = buildPointsNeeded(entityType, this.config.tickRate);
+    }
     const half = type.footprint >> 1;
     this.map.setBuilding(tileX - half, tileY - half, type.footprint, true);
     return this.idAt(slot);
@@ -518,6 +560,33 @@ export class World {
     this.moveState[slot] = MoveState.Idle;
     this.goalX[slot] = this.posX[slot]!;
     this.goalY[slot] = this.posY[slot]!;
+  }
+
+  // ---- Stores ----------------------------------------------------------------
+
+  canAfford(player: number, cost: readonly number[]): boolean {
+    for (let r = 0; r < RESOURCE_COUNT; r++) {
+      if (this.stock[player * RESOURCE_COUNT + r]! < cost[r]!) return false;
+    }
+    return true;
+  }
+
+  /** Takes a cost out of a player's stores. Check canAfford first. */
+  pay(player: number, cost: readonly number[]): void {
+    for (let r = 0; r < RESOURCE_COUNT; r++) {
+      const at = player * RESOURCE_COUNT + r;
+      this.stock[at] = this.stock[at]! - cost[r]!;
+      this.spent[at] = this.spent[at]! + cost[r]!;
+    }
+  }
+
+  /** Gives a cost back, as when a building site or a queued unit is cancelled. */
+  refund(player: number, cost: readonly number[]): void {
+    for (let r = 0; r < RESOURCE_COUNT; r++) {
+      const at = player * RESOURCE_COUNT + r;
+      this.stock[at] = this.stock[at]! + cost[r]!;
+      this.spent[at] = this.spent[at]! - cost[r]!;
+    }
   }
 
   /** Takes a gatherer off its round trip. It keeps whatever it is carrying. */

@@ -9,11 +9,13 @@
 import { economySystem } from './economy';
 import { movementSystem } from './movement';
 import { applyCommand } from './orders';
+import { productionSystem } from './production';
 import { routingSystem } from './routing';
 import type { World } from './world';
 
 export function step(world: World): void {
   for (const entry of world.commands.takeDue(world.tick)) applyCommand(world, entry);
+  productionSystem(world);
   economySystem(world);
   routingSystem(world);
   movementSystem(world);

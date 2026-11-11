@@ -51,6 +51,7 @@ export function hashWorld(world: World): number {
   add(world.map.checksum);
   add(world.map.stateHash);
   for (let i = 0; i < world.stock.length; i++) add(world.stock[i]!);
+  for (let i = 0; i < world.spent.length; i++) add(world.spent[i]!);
   for (const word of world.rng.getState()) add(word);
   add(world.highWater);
   add(world.freeSlots.length);

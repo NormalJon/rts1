@@ -7,7 +7,7 @@
  * is not ready yet simply waits, usually for a tick or less.
  */
 
-import { FIXED_MAX } from './fixed';
+import { FIXED_MAX, idiv } from './fixed';
 import { AStarSearch, FieldSearch } from './search';
 import {
   GroupStatus,
@@ -24,6 +24,8 @@ export function beginOrder(world: World, slot: number, groupId: number, goalX: n
   world.group[slot] = groupId;
   world.goalX[slot] = goalX;
   world.goalY[slot] = goalY;
+  // The ground may have been built on since the order was given.
+  keepGoalOnOpenGround(world, slot);
   world.paths[slot] = undefined;
   world.pathIndex[slot] = 0;
   world.stuck[slot] = 0;
@@ -61,6 +63,65 @@ export function chooseRoute(world: World, slot: number): void {
     world.routeQueue.push({ kind: 'field', group: group.id });
   }
   world.moveState[slot] = MoveState.Awaiting;
+}
+
+/** If a unit's destination is somewhere it cannot stand, moves the destination to the nearest place it can. */
+function keepGoalOnOpenGround(world: World, slot: number): boolean {
+  const { map } = world;
+  const goalTile = map.tileAt(world.goalX[slot]!, world.goalY[slot]!);
+  if (map.passable[goalTile] === 1) return false;
+  const region = map.region[map.tileAt(world.posX[slot]!, world.posY[slot]!)]!;
+  let near = map.nearestPassable(goalTile % map.width, idiv(goalTile, map.width), region, 24);
+  if (near === -1) near = map.nearestPassable(goalTile % map.width, idiv(goalTile, map.width));
+  if (near === -1) return false;
+  world.goalX[slot] = map.centreX(near);
+  world.goalY[slot] = map.centreY(near);
+  return true;
+}
+
+/**
+ * Called when a building has just gone up. Any route may now lead through
+ * it, so shared flow fields are thrown away, and each unit on the move checks
+ * that its way is still open and asks for a new route if not.
+ */
+export function routesAfterObstacle(world: World): void {
+  const { map } = world;
+  for (const group of world.groups.values()) {
+    if (map.passable[group.goalTile] === 0) {
+      const near = map.nearestPassable(group.goalTile % map.width, idiv(group.goalTile, map.width));
+      if (near !== -1) group.goalTile = near;
+    }
+    if (group.status === GroupStatus.Ready) {
+      group.field = null;
+      group.fieldChecksum = 0;
+      group.status = GroupStatus.New;
+    }
+  }
+  for (let slot = 0; slot < world.highWater; slot++) {
+    if (world.alive[slot] === 0 || world.mobile[slot] === 0) continue;
+    const moved = keepGoalOnOpenGround(world, slot);
+    const state = world.moveState[slot]!;
+    if (state === MoveState.Idle || state === MoveState.Awaiting) continue;
+    if (state === MoveState.Field || moved) {
+      chooseRoute(world, slot);
+      continue;
+    }
+    // Walk the rest of the way in the mind's eye: here to the next waypoint, and on to the last.
+    let x = world.posX[slot]!;
+    let y = world.posY[slot]!;
+    let open = true;
+    const path = world.paths[slot];
+    if (state === MoveState.Path && path !== undefined) {
+      for (let i = world.pathIndex[slot]! * 2; i < path.length && open; i += 2) {
+        open = map.lineOfSight(x, y, path[i]!, path[i + 1]!);
+        x = path[i]!;
+        y = path[i + 1]!;
+      }
+    } else {
+      open = map.lineOfSight(x, y, world.goalX[slot]!, world.goalY[slot]!);
+    }
+    if (!open) chooseRoute(world, slot);
+  }
 }
 
 /** Queues a search for a path of the unit's own. */

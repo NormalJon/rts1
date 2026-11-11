@@ -1,4 +1,4 @@
-import { ENTITY_TYPES, RESOURCE_COUNT, resourceOfTerrain } from '../src/sim/entityTypes';
+import { buildPointsNeeded, ENTITY_TYPES, RESOURCE_COUNT, resourceOfTerrain, TRAIN_QUEUE_LENGTH } from '../src/sim/entityTypes';
 import { fromInt, length } from '../src/sim/fixed';
 import { hashWorld } from '../src/sim/hash';
 import { Rng } from '../src/sim/rng';
@@ -58,7 +58,8 @@ export function playRandomMatch(
       kind: 'spawn',
       x: start?.x ?? randomX(),
       y: start?.y ?? randomY(),
-      count: 20,
+      // With the standard kit there are six villagers already and room for ten units in all.
+      count: config.start === 'standard' ? 3 : 20,
       unitType: randomUnitType(),
     });
     // As a player would: everyone who can work starts on something near home.
@@ -83,7 +84,7 @@ export function playRandomMatch(
       if (script.chance(1, 120)) {
         session.issue(player, { kind: 'stop', units: randomGroup(player) });
       }
-      if (script.chance(1, 200)) {
+      if (script.chance(1, config.start === 'standard' ? 700 : 200)) {
         session.issue(player, {
           kind: 'spawn',
           x: randomX(),
@@ -95,10 +96,40 @@ export function playRandomMatch(
       if (script.chance(1, 240)) {
         session.issue(player, { kind: 'gather', units: randomGroup(player, true), tile: randomTile(player) });
       }
+      const buildings = world.livingEntities(player).filter((id) => world.mobile[id & 0xfffff] === 0);
+      const randomBuilding = (): number =>
+        buildings.length > 0 ? buildings[script.nextInt(buildings.length)]! : script.nextInt(50);
       if (script.chance(1, 400)) {
-        const buildings = world.livingEntities(player).filter((id) => !world.livingUnits(player).includes(id));
-        const target = buildings.length > 0 ? buildings[script.nextInt(buildings.length)]! : script.nextInt(50);
-        session.issue(player, { kind: 'deliver', units: randomGroup(player, true), target });
+        session.issue(player, { kind: 'deliver', units: randomGroup(player, true), target: randomBuilding() });
+      }
+      // Building and training, as often badly as well: on trees, without the wood, in a full queue.
+      const start = world.map.starts[player];
+      if (start !== undefined && script.chance(1, 260)) {
+        session.issue(player, {
+          kind: 'build',
+          units: randomGroup(player),
+          buildingType: script.nextInt(ENTITY_TYPES.length),
+          tileX: (start.x >> 16) + script.nextInt(25) - 12,
+          tileY: (start.y >> 16) + script.nextInt(25) - 12,
+        });
+      }
+      if (script.chance(1, 400)) {
+        session.issue(player, { kind: 'construct', units: randomGroup(player), target: randomBuilding() });
+      }
+      if (script.chance(1, 60)) {
+        // Mostly something trainable; sometimes nonsense.
+        const unitType = script.chance(3, 4) ? script.nextInt(2) : script.nextInt(ENTITY_TYPES.length + 2);
+        session.issue(player, { kind: 'train', building: randomBuilding(), unitType });
+      }
+      if (script.chance(1, 500)) {
+        session.issue(player, { kind: 'cancelTrain', building: randomBuilding(), index: script.nextInt(3) });
+      }
+      if (script.chance(1, 300)) {
+        session.issue(player, { kind: 'rally', buildings: [randomBuilding()], x: randomX(), y: randomY() });
+      }
+      // The town centre (the first building) is spared, or the economy under test would stop.
+      if (buildings.length > 1 && script.chance(1, 900)) {
+        session.issue(player, { kind: 'demolish', targets: [buildings[1 + script.nextInt(buildings.length - 1)]!] });
       }
     }
     session.step();
@@ -114,7 +145,7 @@ export function playRandomMatch(
  */
 const startingTotals = new WeakMap<World, number[]>();
 
-/** Everything of each resource there is: in the ground, on villagers' backs and in the stores. */
+/** Everything of each resource there is: in the ground, on villagers' backs, in the stores, and spent. */
 export function resourceTotals(world: World): number[] {
   const totals = new Array<number>(RESOURCE_COUNT).fill(0);
   const { map } = world;
@@ -126,7 +157,7 @@ export function resourceTotals(world: World): number[] {
   for (let slot = 0; slot < world.highWater; slot++) {
     if (world.alive[slot] === 1) totals[world.carryKind[slot]!]! += world.carry[slot]!;
   }
-  for (let i = 0; i < world.stock.length; i++) totals[i % RESOURCE_COUNT]! += world.stock[i]!;
+  for (let i = 0; i < world.stock.length; i++) totals[i % RESOURCE_COUNT]! += world.stock[i]! + world.spent[i]!;
   return totals;
 }
 
@@ -176,6 +207,8 @@ export function brokenInvariant(world: World): string | null {
     return `resources are not conserved: started with ${before.join('/')}, now ${totals.join('/')}`;
   }
   if (world.tick % 20 === 0 && !regionsAreRight(world)) return 'the map\'s connected regions are out of date';
+  // Every built-on tile belongs to a building and every building's tiles are built on.
+  let built = 0;
   const claims = new Map<number, number>();
   const claim = (group: number): void => {
     if (group !== 0) claims.set(group, (claims.get(group) ?? 0) + 1);
@@ -188,6 +221,13 @@ export function brokenInvariant(world: World): string | null {
     if (world.carry[slot]! > type.carries) return `unit ${slot} carries more than it can`;
     if (world.mobile[slot] === 0) {
       if (world.moveState[slot] !== 0 || world.group[slot] !== 0) return `building ${slot} has been given orders`;
+      const needed = buildPointsNeeded(world.entityType[slot]!, world.config.tickRate);
+      if ((world.built[slot] === 1) !== (world.buildPoints[slot]! >= needed)) return `building ${slot} is finished but not built, or the reverse`;
+      if (world.trainLength[slot]! > TRAIN_QUEUE_LENGTH) return `building ${slot} has too long a queue`;
+      if (world.trainLength[slot] === 0 && (world.trainTicks[slot] !== 0 || world.trainStarted[slot] !== 0)) {
+        return `building ${slot} is training with nothing queued`;
+      }
+      built += type.footprint * type.footprint;
       continue;
     }
     if (x < 0 || y < 0 || x > map.maxX || y > map.maxY) return `unit ${slot} is off the map`;
@@ -195,6 +235,9 @@ export function brokenInvariant(world: World): string | null {
     claim(world.group[slot]!);
     for (let k = 0; k < world.queueLength[slot]!; k++) claim(world.queueGroup[slot * ORDER_QUEUE_LENGTH + k]!);
   }
+  let blocked = 0;
+  for (let tile = 0; tile < map.tileCount; tile++) blocked += map.blocked[tile]!;
+  if (blocked !== built) return `${blocked} tiles are marked as built on, but buildings cover ${built}`;
   for (const group of world.groups.values()) {
     if (group.refs !== (claims.get(group.id) ?? 0)) {
       return `group ${group.id} counts ${group.refs} units but ${claims.get(group.id) ?? 0} refer to it`;

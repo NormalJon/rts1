@@ -6,11 +6,13 @@
  */
 
 import type { Command, ScheduledCommand } from './commands';
-import { acceptsDeliveries, assignDelivery, assignGather, spotsTakenExcept } from './economy';
-import { ENTITY_TYPES } from './entityTypes';
+import { demolish, found } from './buildings';
+import { acceptsDeliveries, assignConstruction, assignDelivery, assignGather, spotsTakenExcept } from './economy';
+import { ENTITY_TYPES, resourceOfTerrain } from './entityTypes';
 import { clamp, fromRatio, HALF, idiv, isqrt, length, mul, mulDiv, ONE, type Fixed } from './fixed';
+import { cancelTraining, queueTraining } from './production';
 import { beginOrder } from './routing';
-import { entityIndex, MoveState, ORDER_QUEUE_LENGTH, type World } from './world';
+import { entityIndex, MoveState, NO_ENTITY, ORDER_QUEUE_LENGTH, type World } from './world';
 
 /** Limits on what a single command may ask for, whoever sent it. */
 const MAX_UNITS_PER_COMMAND = 1024;
@@ -53,6 +55,58 @@ export function applyCommand(world: World, entry: ScheduledCommand): void {
     case 'deliver':
       applyDeliver(world, player, command);
       break;
+    case 'build': {
+      const site = found(world, player, command.buildingType | 0, command.tileX, command.tileY);
+      if (site !== NO_ENTITY) sendBuilders(world, player, command.units, site);
+      break;
+    }
+    case 'construct':
+      sendBuilders(world, player, command.units, command.target);
+      break;
+    case 'train':
+      queueTraining(world, player, command.building, command.unitType | 0);
+      break;
+    case 'cancelTrain':
+      cancelTraining(world, player, command.building, command.index);
+      break;
+    case 'rally':
+      applyRally(world, player, command);
+      break;
+    case 'demolish':
+      if (Array.isArray(command.targets)) {
+        for (const target of command.targets.slice(0, MAX_UNITS_PER_COMMAND)) demolish(world, player, target);
+      }
+      break;
+  }
+}
+
+/** Sets the listed villagers to work on a site. Units that cannot build walk over to it instead. */
+function sendBuilders(world: World, player: number, units: readonly number[], site: number): void {
+  if (!world.isAlive(site)) return;
+  const at = entityIndex(site);
+  if (world.mobile[at] === 1 || world.owner[at] !== player) return;
+  const walkers: number[] = [];
+  for (const slot of ownedSlots(world, player, units)) {
+    if (!assignConstruction(world, slot, site)) walkers.push(world.idAt(slot));
+  }
+  if (walkers.length > 0) {
+    applyMove(world, player, { kind: 'move', units: walkers, x: world.posX[at]!, y: world.posY[at]! });
+  }
+}
+
+function applyRally(world: World, player: number, command: Extract<Command, { kind: 'rally' }>): void {
+  const { map } = world;
+  if (!Array.isArray(command.buildings)) return;
+  const x = clamp(command.x | 0, 0, map.maxX);
+  const y = clamp(command.y | 0, 0, map.maxY);
+  const tile = map.tileAt(x, y);
+  for (const id of command.buildings.slice(0, MAX_UNITS_PER_COMMAND)) {
+    if (!world.isAlive(id)) continue;
+    const slot = entityIndex(id);
+    if (world.mobile[slot] === 1 || world.owner[slot] !== player) continue;
+    world.rallyX[slot] = x;
+    world.rallyY[slot] = y;
+    world.rallyTile[slot] = resourceOfTerrain(map.terrain[tile]!) !== -1 ? tile : -1;
   }
 }
 

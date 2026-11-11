@@ -47,6 +47,45 @@ export type Command =
       readonly kind: 'deliver';
       readonly units: readonly EntityId[];
       readonly target: EntityId;
+    }
+  | {
+      /** Found a building with its centre on a tile, and set these villagers to building it. */
+      readonly kind: 'build';
+      readonly units: readonly EntityId[];
+      /** Index into ENTITY_TYPES. */
+      readonly buildingType: number;
+      readonly tileX: number;
+      readonly tileY: number;
+    }
+  | {
+      /** Work on a building site that already exists. */
+      readonly kind: 'construct';
+      readonly units: readonly EntityId[];
+      readonly target: EntityId;
+    }
+  | {
+      /** Add a unit to a building's training queue. */
+      readonly kind: 'train';
+      readonly building: EntityId;
+      readonly unitType: number;
+    }
+  | {
+      /** Take a unit out of a building's training queue; 0 is the one being trained. */
+      readonly kind: 'cancelTrain';
+      readonly building: EntityId;
+      readonly index: number;
+    }
+  | {
+      /** Set where units trained at these buildings go. On a resource, villagers start gathering it. */
+      readonly kind: 'rally';
+      readonly buildings: readonly EntityId[];
+      readonly x: Fixed;
+      readonly y: Fixed;
+    }
+  | {
+      /** Pull down the player's own buildings. Unfinished ones are refunded. */
+      readonly kind: 'demolish';
+      readonly targets: readonly EntityId[];
     };
 
 export interface ScheduledCommand {

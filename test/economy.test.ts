@@ -109,8 +109,8 @@ describe('gathering', () => {
   });
 
   it('turns a worked-out tile into open ground and moves on to the next', () => {
-    const world = worldFrom(['..........', '..TT......', '..........', '..........']);
-    const hall = world.spawnBuilding(0, Kind.TownCentre, 7, 1);
+    const world = worldFrom(['..........', '..TT......', '..........', '..........', '..........', '..........']);
+    const hall = world.spawnBuilding(0, Kind.TownCentre, 7, 3);
     expect(hall).toBeGreaterThanOrEqual(0);
     const first = world.map.index(2, 1);
     const second = world.map.index(3, 1);

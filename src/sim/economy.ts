@@ -1,6 +1,8 @@
 /**
- * Gathering: the round trip a villager makes between a resource and the
- * nearest place to hand it in.
+ * What villagers do: gathering, and building.
+ *
+ * Gathering is a round trip between a resource and the nearest place to hand
+ * it in:
  *
  *   walk to a free place beside the resource  ->  work until loaded
  *        ^                                              |
@@ -8,11 +10,22 @@
  *   hand in at the drop-off  <-  carry the load to the nearest one
  *
  * When a tile runs out the villager moves to the nearest tile of the same
- * kind. Everything taken from the map ends up either on a villager's back or
- * in a stockpile; nothing is created or lost along the way.
+ * kind. Everything taken from the map ends up on a villager's back, in a
+ * stockpile, or spent; nothing is created or lost along the way.
+ *
+ * Building is simpler: walk to the site, work until it is finished, then
+ * find something useful to do next.
  */
 
-import { ENTITY_TYPES, RESOURCE_COUNT, resourceOfTerrain, ticksPerUnit } from './entityTypes';
+import {
+  buildPointsNeeded,
+  ENTITY_TYPES,
+  LONE_BUILDER_POINTS,
+  RESOURCE_COUNT,
+  resourceOfTerrain,
+  terrainsAccepted,
+  ticksPerUnit,
+} from './entityTypes';
 import { fromRatio, HALF, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
 import { DIR_X, DIR_Y } from './map';
 import { beginOrder } from './routing';
@@ -22,11 +35,17 @@ import { entityIndex, Job, MoveState, NO_ENTITY, type EntityId, type World } fro
 const REACH: Fixed = fromRatio(4, 5);
 /** How far it will look for another tile of the same resource. */
 const SEARCH_RADIUS = 14;
+/** How far from a finished camp its builders look for something to gather. */
+const CAMP_RADIUS = 10;
+/** How far a builder looks for another site to help at. */
+const NEXT_SITE_RADIUS = 14;
 /** How many times it tries to reach a place before giving up on it. */
 const MAX_TRIES = 3;
 /** Two villagers share a tile beside a resource, standing this far either side of its middle. */
 const SIDE_STEP: Fixed = ONE >> 2;
 const LEAN_IN: Fixed = fromRatio(3, 20);
+
+// ---- Orders ------------------------------------------------------------------
 
 /**
  * Sets a villager to gathering from a resource tile. Returns false if there
@@ -76,25 +95,40 @@ export function assignDelivery(world: World, slot: number, building: EntityId): 
   startDelivery(world, slot, building);
 }
 
+/** Sends a villager to work on a building site. Returns false if it is not one of the player's unfinished buildings. */
+export function assignConstruction(world: World, slot: number, site: EntityId): boolean {
+  if (!isSite(world, site, world.owner[slot]!) || !ENTITY_TYPES[world.entityType[slot]!]!.builds) return false;
+  world.clearOrders(slot);
+  world.clearJob(slot);
+  if (!walkToEdgeOf(world, slot, entityIndex(site))) return false;
+  world.jobTarget[slot] = site;
+  world.job[slot] = Job.ToSite;
+  return true;
+}
+
+// ---- Every tick ----------------------------------------------------------------
+
 export function economySystem(world: World): void {
   const { map } = world;
+  world.scratchBuilders.fill(0, 0, world.highWater);
   for (let slot = 0; slot < world.highWater; slot++) {
     if (world.alive[slot] === 0) continue;
     const job = world.job[slot]!;
     if (job === Job.None) continue;
 
+    if (job === Job.ToSite || job === Job.Constructing) {
+      build(world, slot);
+      continue;
+    }
+
     if (job === Job.ToDropOff) {
       const target = world.jobTarget[slot]!;
-      if (!isDropOff(world, target, world.owner[slot]!)) {
+      if (!takesDeliveryOf(world, target, world.owner[slot]!, world.carryKind[slot]!)) {
         // The building has gone. Try another.
         startDelivery(world, slot);
         continue;
       }
-      const at = entityIndex(target);
-      const half = ENTITY_TYPES[world.entityType[at]!]!.footprint >> 1;
-      const left = (world.posX[at]! >> 16) - half;
-      const top = (world.posY[at]! >> 16) - half;
-      if (withinReach(world, slot, left, top, half * 2 + 1)) {
+      if (withinReachOf(world, slot, entityIndex(target))) {
         const player = world.owner[slot]!;
         const stockAt = player * RESOURCE_COUNT + world.carryKind[slot]!;
         world.stock[stockAt] = world.stock[stockAt]! + world.carry[slot]!;
@@ -129,8 +163,14 @@ export function economySystem(world: World): void {
       continue;
     }
 
-    // Harvesting. A villager jostled out of reach waits to drift back before carrying on.
-    if (!near) continue;
+    // Harvesting. A villager jostled out of reach waits to drift back before
+    // carrying on. If it has come to rest and still cannot reach (its place
+    // has been built over, say), it finds another.
+    if (!near) {
+      const fromPost = length(world.posX[slot]! - world.goalX[slot]!, world.posY[slot]! - world.goalY[slot]!);
+      if (fromPost <= ONE >> 4) goToResource(world, slot);
+      continue;
+    }
     const resource = resourceOfTerrain(map.terrain[tile]!);
     world.jobTimer[slot] = world.jobTimer[slot]! + 1;
     if (world.jobTimer[slot]! < ticksPerUnit(resource, world.config.tickRate)) continue;
@@ -179,6 +219,49 @@ function withinReach(world: World, slot: number, left: number, top: number, size
   const dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
   if (dx > REACH || dy > REACH) return false;
   return length(dx, dy) <= REACH;
+}
+
+/** Whether a unit is within reach of a building. */
+function withinReachOf(world: World, slot: number, building: number): boolean {
+  const footprint = ENTITY_TYPES[world.entityType[building]!]!.footprint;
+  const half = footprint >> 1;
+  return withinReach(world, slot, (world.posX[building]! >> 16) - half, (world.posY[building]! >> 16) - half, footprint);
+}
+
+/**
+ * Sends a unit to the nearest open tile on the ring just outside a building.
+ * Returns false if there is none it can get to.
+ */
+function walkToEdgeOf(world: World, slot: number, building: number): boolean {
+  const { map } = world;
+  const px = world.posX[slot]!;
+  const py = world.posY[slot]!;
+  const region = map.region[map.tileAt(px, py)]!;
+  const reach = (ENTITY_TYPES[world.entityType[building]!]!.footprint >> 1) + 1;
+  const cx = world.posX[building]! >> 16;
+  const cy = world.posY[building]! >> 16;
+  let bestX = 0;
+  let bestY = 0;
+  let bestDistance = -1;
+  for (let oy = -reach; oy <= reach; oy++) {
+    for (let ox = -reach; ox <= reach; ox++) {
+      if (ox !== -reach && ox !== reach && oy !== -reach && oy !== reach) continue;
+      const tx = cx + ox;
+      const ty = cy + oy;
+      if (!map.isPassable(tx, ty) || map.region[ty * map.width + tx] !== region) continue;
+      const x = tx * ONE + HALF;
+      const y = ty * ONE + HALF;
+      const distance = length(x - px, y - py);
+      if (bestDistance === -1 || distance < bestDistance) {
+        bestX = x;
+        bestY = y;
+        bestDistance = distance;
+      }
+    }
+  }
+  if (bestDistance === -1) return false;
+  walkTo(world, slot, bestX, bestY);
+  return true;
 }
 
 // ---- Going to work ---------------------------------------------------------
@@ -268,32 +351,40 @@ function goToResource(world: World, slot: number, taken: Set<number> = spotsTake
 
 // ---- Handing in ------------------------------------------------------------
 
-function isDropOff(world: World, id: EntityId, owner: number): boolean {
+/** Whether a finished building of this player's takes in a given resource. */
+function takesDeliveryOf(world: World, id: EntityId, owner: number, resource: number): boolean {
   if (!world.isAlive(id)) return false;
   const slot = entityIndex(id);
-  return world.owner[slot] === owner && ENTITY_TYPES[world.entityType[slot]!]!.dropOff;
+  return (
+    world.owner[slot] === owner &&
+    world.built[slot] === 1 &&
+    (ENTITY_TYPES[world.entityType[slot]!]!.accepts & (1 << resource)) !== 0
+  );
 }
 
-/** Whether a player owns this building and gatherers can hand in there. */
+/** Whether a player owns this building and gatherers can hand in something there. */
 export function acceptsDeliveries(world: World, id: EntityId, owner: number): boolean {
-  return isDropOff(world, id, owner);
+  if (!world.isAlive(id)) return false;
+  const slot = entityIndex(id);
+  return world.owner[slot] === owner && world.built[slot] === 1 && ENTITY_TYPES[world.entityType[slot]!]!.accepts !== 0;
 }
 
 /**
- * Sends a loaded villager to a drop-off: the one given, or the nearest. With
- * none standing it stops and keeps its load.
+ * Sends a loaded villager to a drop-off: the one given if it takes what is
+ * being carried, or the nearest that does. With none standing it stops and
+ * keeps its load.
  */
 function startDelivery(world: World, slot: number, building: EntityId = NO_ENTITY): void {
-  const { map } = world;
   const owner = world.owner[slot]!;
+  const resource = world.carryKind[slot]!;
   const px = world.posX[slot]!;
   const py = world.posY[slot]!;
-  let target = isDropOff(world, building, owner) ? entityIndex(building) : -1;
+  let target = takesDeliveryOf(world, building, owner, resource) ? entityIndex(building) : -1;
   if (target === -1) {
     let nearest = 0;
     for (let other = 0; other < world.highWater; other++) {
-      if (world.alive[other] === 0 || world.mobile[other] === 1 || world.owner[other] !== owner) continue;
-      if (!ENTITY_TYPES[world.entityType[other]!]!.dropOff) continue;
+      if (world.alive[other] === 0 || world.mobile[other] === 1) continue;
+      if (!takesDeliveryOf(world, world.idAt(other), owner, resource)) continue;
       const distance = length(world.posX[other]! - px, world.posY[other]! - py);
       if (target === -1 || distance < nearest) {
         target = other;
@@ -301,45 +392,105 @@ function startDelivery(world: World, slot: number, building: EntityId = NO_ENTIT
       }
     }
   }
-  if (target === -1) {
-    const tile = world.jobTile[slot]!;
-    const terrain = world.jobTerrain[slot]!;
+  const tile = world.jobTile[slot]!;
+  const terrain = world.jobTerrain[slot]!;
+  if (target === -1 || !walkToEdgeOf(world, slot, target)) {
     stopWorking(world, slot);
     // Remember the work, so it can be picked up when there is somewhere to deliver to.
     world.jobTile[slot] = tile;
     world.jobTerrain[slot] = terrain;
     return;
   }
+  world.jobTarget[slot] = world.idAt(target);
+  world.job[slot] = Job.ToDropOff;
+}
 
-  // Walk to the nearest open tile on the ring just outside the building.
+// ---- Building ----------------------------------------------------------------
+
+/** Whether this is one of the player's buildings that is still being built. */
+function isSite(world: World, id: EntityId, owner: number): boolean {
+  if (!world.isAlive(id)) return false;
+  const slot = entityIndex(id);
+  return world.mobile[slot] === 0 && world.owner[slot] === owner && world.built[slot] === 0;
+}
+
+/** One tick of a villager's building job. */
+function build(world: World, slot: number): void {
+  const site = world.jobTarget[slot]!;
+  if (!isSite(world, site, world.owner[slot]!)) {
+    // Finished by the others, or pulled down.
+    afterBuilding(world, slot, site);
+    return;
+  }
+  const at = entityIndex(site);
+  const near = withinReachOf(world, slot, at);
+  if (world.job[slot] === Job.ToSite) {
+    if (near) {
+      // Close enough: down tools from walking and start work next tick.
+      world.clearOrders(slot);
+      world.job[slot] = Job.Constructing;
+      world.jobTries[slot] = 0;
+      face(world, slot, world.posX[at]!, world.posY[at]!);
+    } else if (world.moveState[slot] === MoveState.Idle) {
+      retryOrQuit(world, slot, () => {
+        if (!walkToEdgeOf(world, slot, at)) stopWorking(world, slot);
+      });
+    }
+    return;
+  }
+  if (!near) return;
+  // The first builder to reach a site each tick does the most; each helper adds a little.
+  const points = world.scratchBuilders[at] === 0 ? LONE_BUILDER_POINTS : 1;
+  world.scratchBuilders[at] = world.scratchBuilders[at]! + 1;
+  const needed = buildPointsNeeded(world.entityType[at]!, world.config.tickRate);
+  world.buildPoints[at] = Math.min(needed, world.buildPoints[at]! + points);
+  if (world.buildPoints[at]! >= needed) {
+    world.built[at] = 1;
+    afterBuilding(world, slot, site);
+  }
+}
+
+/**
+ * A builder's next move once its site is done: if it has just finished a camp
+ * or mill, start gathering what that takes in; otherwise help at the nearest
+ * other site; otherwise stand down.
+ */
+function afterBuilding(world: World, slot: number, finished: EntityId): void {
+  const { map } = world;
+  const owner = world.owner[slot]!;
+  const px = world.posX[slot]!;
+  const py = world.posY[slot]!;
   const region = map.region[map.tileAt(px, py)]!;
-  const reach = (ENTITY_TYPES[world.entityType[target]!]!.footprint >> 1) + 1;
-  const cx = world.posX[target]! >> 16;
-  const cy = world.posY[target]! >> 16;
-  let bestX = 0;
-  let bestY = 0;
-  let bestDistance = -1;
-  for (let oy = -reach; oy <= reach; oy++) {
-    for (let ox = -reach; ox <= reach; ox++) {
-      if (ox !== -reach && ox !== reach && oy !== -reach && oy !== reach) continue;
-      const tx = cx + ox;
-      const ty = cy + oy;
-      if (!map.isPassable(tx, ty) || map.region[ty * map.width + tx] !== region) continue;
-      const x = tx * ONE + HALF;
-      const y = ty * ONE + HALF;
-      const distance = length(x - px, y - py);
-      if (bestDistance === -1 || distance < bestDistance) {
-        bestX = x;
-        bestY = y;
+  if (world.isAlive(finished) && world.built[entityIndex(finished)] === 1) {
+    const at = entityIndex(finished);
+    const cx = world.posX[at]! >> 16;
+    const cy = world.posY[at]! >> 16;
+    let best = -1;
+    let bestDistance = 0;
+    for (const terrain of terrainsAccepted(world.entityType[at]!)) {
+      const tile = map.nearestResource(cx, cy, terrain, region, CAMP_RADIUS);
+      if (tile === -1) continue;
+      const dx = (tile % map.width) - cx;
+      const dy = idiv(tile, map.width) - cy;
+      const distance = dx * dx + dy * dy;
+      if (best === -1 || distance < bestDistance) {
+        best = tile;
         bestDistance = distance;
       }
     }
+    if (best !== -1 && ENTITY_TYPES[world.entityType[slot]!]!.carries > 0 && assignGather(world, slot, best)) return;
   }
-  if (bestDistance === -1) {
-    stopWorking(world, slot);
-    return;
+  let next = -1;
+  let nearest = NEXT_SITE_RADIUS * ONE;
+  for (let other = 0; other < world.highWater; other++) {
+    if (world.alive[other] === 0 || world.mobile[other] === 1) continue;
+    if (world.owner[other] !== owner || world.built[other] === 1) continue;
+    const distance = length(world.posX[other]! - px, world.posY[other]! - py);
+    if (distance < nearest) {
+      next = other;
+      nearest = distance;
+    }
   }
-  walkTo(world, slot, bestX, bestY);
-  world.jobTarget[slot] = world.idAt(target);
-  world.job[slot] = Job.ToDropOff;
+  if (next !== -1 && assignConstruction(world, slot, world.idAt(next))) return;
+  stopWorking(world, slot);
 }

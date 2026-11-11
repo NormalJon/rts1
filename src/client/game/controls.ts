@@ -250,7 +250,7 @@ export class Controls {
       const slot = entityIndex(target.id);
       const x = world.posX[slot]! / 65536;
       const y = world.posY[slot]! / 65536;
-      if (world.owner[slot] === this.player && ENTITY_TYPES[world.entityType[slot]!]!.dropOff) {
+      if (world.owner[slot] === this.player && world.built[slot] === 1 && ENTITY_TYPES[world.entityType[slot]!]!.accepts !== 0) {
         this.session.issue(this.player, { kind: 'deliver', units, target: target.id });
         this.view.addMarker(x, y, 'work');
       } else {
