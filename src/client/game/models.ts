@@ -43,10 +43,15 @@ export interface StaticModel {
 }
 
 export interface Models {
-  /** Indexed like ENTITY_TYPES in the simulation. */
-  readonly units: readonly UnitModel[];
+  /** By entity type, as in the simulation's ENTITY_TYPES. Buildings have no entry here. */
+  readonly units: readonly (UnitModel | undefined)[];
+  /** By entity type. Units have no entry here. */
+  readonly buildings: readonly (StaticModel | undefined)[];
   readonly oak: StaticModel;
   readonly conifer: StaticModel;
+  readonly berries: StaticModel;
+  readonly stone: StaticModel;
+  readonly gold: StaticModel;
 }
 
 function decode(base64: string): ArrayBuffer {
@@ -106,7 +111,15 @@ async function loadUnit(name: string, clipNames: readonly string[]): Promise<Uni
   return { parts: meshes.map(partOf), clips };
 }
 
-async function loadStatic(name: string): Promise<StaticModel> {
+/** A plain block, shown in place of a model the page was built without. */
+function standIn(colour: string, width: number, height: number, team = false): StaticModel {
+  const geometry = new THREE.BoxGeometry(width, height, width).translate(0, height / 2, 0);
+  const material = new THREE.MeshLambertMaterial({ color: new THREE.Color(colour) });
+  return { parts: [{ geometry, material, team, matrix: new THREE.Matrix4() }] };
+}
+
+async function loadStatic(name: string, fallback?: () => StaticModel): Promise<StaticModel> {
+  if (fallback !== undefined && window.__MODELS?.[name] === undefined) return fallback();
   const gltf = await parse(name);
   gltf.scene.updateMatrixWorld(true);
   return {
@@ -115,11 +128,24 @@ async function loadStatic(name: string): Promise<StaticModel> {
 }
 
 export async function loadModels(): Promise<Models> {
-  const [spearman, villager, oak, conifer] = await Promise.all([
+  const [spearman, villager, hall, oak, conifer, berries, stone, gold] = await Promise.all([
     loadUnit('spearman', ['idle', 'walk']),
-    loadUnit('villager', ['idle', 'walk']),
+    loadUnit('villager', ['idle', 'walk', 'chop']),
+    loadStatic('hall', () => standIn('#8a6a45', 9, 4, true)),
     loadStatic('oak'),
     loadStatic('conifer'),
+    loadStatic('berry-bush', () => standIn('#4d7a3a', 1.4, 0.9)),
+    loadStatic('stone-deposit', () => standIn('#a9a7a0', 1.7, 1.2)),
+    loadStatic('gold-deposit', () => standIn('#c9a227', 1.7, 1.2)),
   ]);
-  return { units: [spearman, villager], oak, conifer };
+  // In the order of the simulation's ENTITY_TYPES: spearman, villager, town centre.
+  return {
+    units: [spearman, villager, undefined],
+    buildings: [undefined, undefined, hall],
+    oak,
+    conifer,
+    berries,
+    stone,
+    gold,
+  };
 }

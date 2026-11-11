@@ -8,6 +8,7 @@
 //                                    rebuilding on every page load
 
 import { build } from 'esbuild';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
@@ -30,6 +31,8 @@ const PAGES = {
     template: 'src/client/game/page.html',
     libraries: THREE_SCRIPTS,
     models: ['spearman', 'villager', 'oak', 'conifer'],
+    // Used if present; the page shows plain blocks for any that are not built yet.
+    optionalModels: ['hall', 'berry-bush', 'stone-deposit', 'gold-deposit'],
   },
 };
 
@@ -59,6 +62,10 @@ async function buildPage(name) {
     const models = {};
     for (const model of page.models) {
       models[model] = (await readFile(join(root, 'art-pipeline/models', `${model}.glb`))).toString('base64');
+    }
+    for (const model of page.optionalModels ?? []) {
+      const file = join(root, 'art-pipeline/models', `${model}.glb`);
+      if (existsSync(file)) models[model] = (await readFile(file)).toString('base64');
     }
     scripts += inline(`window.__MODELS = ${JSON.stringify(models)};`) + '\n';
   }

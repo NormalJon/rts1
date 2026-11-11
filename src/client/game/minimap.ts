@@ -3,6 +3,7 @@
  * and the outline of what the main view is showing.
  */
 
+import { ENTITY_TYPES } from '../../sim/entityTypes';
 import { toFloat } from '../../sim/fixed';
 import { Terrain } from '../../sim/map';
 import type { World } from '../../sim/world';
@@ -14,11 +15,15 @@ const TERRAIN_RGB: Record<number, [number, number, number]> = {
   [Terrain.Shallows]: [150, 178, 170],
   [Terrain.Water]: [52, 96, 124],
   [Terrain.Rock]: [128, 126, 120],
+  [Terrain.Berries]: [150, 72, 96],
+  [Terrain.Stone]: [196, 194, 186],
+  [Terrain.Gold]: [226, 186, 60],
 };
 
 export class Minimap {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly terrain: HTMLCanvasElement;
+  private readonly paint: CanvasRenderingContext2D;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -29,17 +34,17 @@ export class Minimap {
     this.ctx = canvas.getContext('2d')!;
     const { map } = world;
 
-    // The terrain never changes, so it is painted once, a pixel per tile.
+    // The terrain is painted once, a pixel per tile, and touched up as tiles change.
     this.terrain = document.createElement('canvas');
     this.terrain.width = map.width;
     this.terrain.height = map.height;
-    const paint = this.terrain.getContext('2d')!;
-    const image = paint.createImageData(map.width, map.height);
+    this.paint = this.terrain.getContext('2d')!;
+    const image = this.paint.createImageData(map.width, map.height);
     for (let tile = 0; tile < map.tileCount; tile++) {
       const [r, g, b] = TERRAIN_RGB[map.terrain[tile]!] ?? [255, 0, 255];
       image.data.set([r, g, b, 255], tile * 4);
     }
-    paint.putImageData(image, 0, 0);
+    this.paint.putImageData(image, 0, 0);
 
     const toTiles = (event: PointerEvent | MouseEvent): { x: number; y: number } => {
       const rect = canvas.getBoundingClientRect();
@@ -74,6 +79,14 @@ export class Minimap {
     canvas.addEventListener('contextmenu', (event) => event.preventDefault());
   }
 
+  /** Repaints one tile after its terrain has changed. */
+  repaintTile(tile: number): void {
+    const { map } = this.world;
+    const [r, g, b] = TERRAIN_RGB[map.terrain[tile]!] ?? [255, 0, 255];
+    this.paint.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    this.paint.fillRect(tile % map.width, Math.floor(tile / map.width), 1, 1);
+  }
+
   draw(selected: ReadonlySet<number>): void {
     const { canvas, ctx, world } = this;
     const { map } = world;
@@ -98,7 +111,9 @@ export class Minimap {
       ctx.fillStyle = selected.has(world.idAt(slot))
         ? '#ffffff'
         : TEAM_COLOURS[world.owner[slot]! % TEAM_COLOURS.length]!;
-      ctx.fillRect(Math.round(x - dot / 2), Math.round(y - dot / 2), dot, dot);
+      // Buildings show as a square the size of their footprint.
+      const side = world.mobile[slot] === 1 ? dot : Math.max(dot * 2, ENTITY_TYPES[world.entityType[slot]!]!.footprint * sx);
+      ctx.fillRect(Math.round(x - side / 2), Math.round(y - side / 2), Math.round(side), Math.round(side));
     }
 
     const corners = this.view.viewCorners();

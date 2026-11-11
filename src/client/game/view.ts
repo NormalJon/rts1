@@ -7,9 +7,10 @@
  */
 
 import * as THREE from 'three';
+import { ENTITY_TYPES, resourceOfTerrain } from '../../sim/entityTypes';
 import { toFloat } from '../../sim/fixed';
 import { Terrain } from '../../sim/map';
-import type { World } from '../../sim/world';
+import { Job, type EntityId, type World } from '../../sim/world';
 import { BAKE_FPS, type BakedClip, type Models, type StaticModel, type UnitModel } from './models';
 
 /** Metres per tile. */
@@ -23,16 +24,38 @@ const MARKER_SECONDS = 0.8;
 /** Player colours, named for the heraldic tinctures: azure, gules, or, vert. */
 export const TEAM_COLOURS = ['#2c5aa8', '#b3312c', '#d6a21e', '#2f7d46', '#7a4aa0', '#d07a2a', '#3aa6a0', '#8a8f98'];
 
+/** The ground under each kind of terrain. */
 const TERRAIN_COLOURS: Record<number, string> = {
   [Terrain.Grass]: '#7f9b58',
   [Terrain.Forest]: '#566f43',
   [Terrain.Shallows]: '#c4bb8f',
   [Terrain.Water]: '#3f5557',
   [Terrain.Rock]: '#8d8b85',
+  [Terrain.Berries]: '#6f8c50',
+  [Terrain.Stone]: '#8f8a78',
+  [Terrain.Gold]: '#8d8263',
 };
+
+/** How tall the thing standing on each kind of resource tile is, in metres, for clicking on it. */
+const PROP_HEIGHT: Record<number, number> = {
+  [Terrain.Forest]: 6,
+  [Terrain.Berries]: 1.2,
+  [Terrain.Stone]: 1.5,
+  [Terrain.Gold]: 1.5,
+};
+const BUILDING_HEIGHT = 6.5;
+
+const MARKER_COLOURS = { move: '#bfe38a', queue: '#e9c46a', work: '#f0d9a0' } as const;
+
+/** What a point on the screen is over. */
+export type Pick =
+  | { readonly kind: 'tile'; readonly tile: number }
+  | { readonly kind: 'building'; readonly id: EntityId }
+  | { readonly kind: 'ground'; readonly x: number; readonly y: number };
 
 interface UnitBatch {
   readonly model: UnitModel;
+  readonly type: number;
   readonly meshes: THREE.InstancedMesh[];
   capacity: number;
   count: number;
@@ -41,6 +64,15 @@ interface UnitBatch {
 interface Marker {
   readonly mesh: THREE.Mesh;
   born: number;
+}
+
+interface Placement {
+  readonly tile: number;
+  readonly x: number;
+  readonly y: number;
+  readonly turn: number;
+  readonly size: number;
+  readonly tint: number;
 }
 
 function tileNoise(x: number, y: number): number {
@@ -59,24 +91,39 @@ export class GameView {
   targetY: number;
   distance = 62;
 
+  /** Called when a tile changes, so other displays (the minimap) can follow. */
+  onTileChanged: ((tile: number) => void) | null = null;
+
   private readonly world: World;
+  private readonly models: Models;
   private readonly heights: Float32Array;
-  private readonly batches: UnitBatch[];
+  private readonly batches: UnitBatch[] = [];
   private readonly rings: THREE.InstancedMesh;
   private readonly shadows: THREE.InstancedMesh;
   private readonly markers: Marker[] = [];
   private readonly raycaster = new THREE.Raycaster();
+
+  // The ground's colours, kept so single tiles can be repainted.
+  private readonly tileColour: Float32Array;
+  private readonly cornerColour: Float32Array;
+  private groundColours!: THREE.BufferAttribute;
+  /** The terrain as last drawn, to spot what has changed since. */
+  private readonly seenTerrain: Uint8Array;
+  /** The tree, bush or outcrop standing on each resource tile. */
+  private readonly propOfTile = new Map<number, { readonly meshes: THREE.InstancedMesh[]; readonly index: number }>();
+  private readonly buildings = new Map<number, { readonly id: EntityId; readonly group: THREE.Group }>();
 
   // Per-unit display state, by slot.
   private readonly prevX: Float32Array;
   private readonly prevY: Float32Array;
   private readonly yaw: Float32Array;
   private readonly animTime: Float32Array;
-  private readonly walking: Uint8Array;
+  private readonly clipOf: Uint8Array;
   private seconds = 0;
 
   constructor(canvas: HTMLCanvasElement, world: World, models: Models) {
     this.world = world;
+    this.models = models;
     const { map } = world;
     this.targetX = map.width / 2;
     this.targetY = map.height / 2;
@@ -94,15 +141,18 @@ export class GameView {
     this.heights = new Float32Array(map.elevation.length);
     for (let i = 0; i < this.heights.length; i++) this.heights[i] = toFloat(map.elevation[i]!) * TILE;
 
+    this.tileColour = new Float32Array(map.tileCount * 3);
+    this.cornerColour = new Float32Array((map.width + 1) * (map.height + 1) * 3);
+    this.seenTerrain = Uint8Array.from(map.terrain);
     this.buildTerrain();
-    this.buildTrees(models.oak, models.conifer);
+    this.buildProps();
 
     const n = world.config.maxEntities;
     this.prevX = new Float32Array(n);
     this.prevY = new Float32Array(n);
     this.yaw = new Float32Array(n);
     this.animTime = new Float32Array(n);
-    this.walking = new Uint8Array(n);
+    this.clipOf = new Uint8Array(n);
 
     const shadowGeometry = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
     this.shadows = new THREE.InstancedMesh(
@@ -125,8 +175,12 @@ export class GameView {
     this.shadows.renderOrder = 1;
     this.rings.renderOrder = 2;
 
-    this.batches = models.units.map((model) => ({ model, meshes: [], capacity: 0, count: 0 }));
-    for (const batch of this.batches) this.growBatch(batch, 256);
+    models.units.forEach((model, type) => {
+      if (model === undefined) return;
+      const batch: UnitBatch = { model, type, meshes: [], capacity: 0, count: 0 };
+      this.batches.push(batch);
+      this.growBatch(batch, 256);
+    });
 
     this.rememberPositions();
     for (let slot = 0; slot < world.highWater; slot++) {
@@ -154,82 +208,87 @@ export class GameView {
     return fx > fy ? h00 + (h10 - h00) * fx + (h11 - h10) * fy : h00 + (h11 - h01) * fx + (h01 - h00) * fy;
   }
 
+  /** Works out one tile's own colour from its terrain, with a little variation. */
+  private paintTile(tx: number, ty: number): void {
+    const { map } = this.world;
+    const id = map.terrain[ty * map.width + tx]!;
+    const colour = new THREE.Color(TERRAIN_COLOURS[id] ?? '#ff00ff').convertSRGBToLinear();
+    const shade = 0.9 + tileNoise(tx, ty) * 0.2;
+    this.tileColour.set([colour.r * shade, colour.g * shade, colour.b * shade], (ty * map.width + tx) * 3);
+  }
+
+  /**
+   * Blends the colours of the tiles meeting at a corner, so terrain types fade
+   * into each other instead of meeting along the grid. Rock keeps a hard edge
+   * and takes no part.
+   */
+  private blendCorner(cx: number, cy: number): void {
+    const { map } = this.world;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (let oy = -1; oy <= 0; oy++) {
+      for (let ox = -1; ox <= 0; ox++) {
+        const tx = cx + ox;
+        const ty = cy + oy;
+        if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) continue;
+        if (map.terrain[ty * map.width + tx] === Terrain.Rock) continue;
+        const at = (ty * map.width + tx) * 3;
+        r += this.tileColour[at]!;
+        g += this.tileColour[at + 1]!;
+        b += this.tileColour[at + 2]!;
+        n++;
+      }
+    }
+    if (n > 0) this.cornerColour.set([r / n, g / n, b / n], (cy * (map.width + 1) + cx) * 3);
+  }
+
+  /** The corners of a tile's two triangles, in the order they are stored. */
+  private static readonly TRIANGLE_CORNERS = [
+    [0, 0],
+    [0, 1],
+    [1, 1],
+    [0, 0],
+    [1, 1],
+    [1, 0],
+  ] as const;
+
+  /** Writes a tile's six vertex colours: its own flat colour for rock, blended corners otherwise. */
+  private colourTile(tx: number, ty: number, colours: Float32Array): void {
+    const { map } = this.world;
+    const tile = ty * map.width + tx;
+    const rock = map.terrain[tile] === Terrain.Rock;
+    GameView.TRIANGLE_CORNERS.forEach(([ox, oy], k) => {
+      const from = rock ? tile * 3 : ((ty + oy) * (map.width + 1) + tx + ox) * 3;
+      const source = rock ? this.tileColour : this.cornerColour;
+      colours.set([source[from]!, source[from + 1]!, source[from + 2]!], (tile * 6 + k) * 3);
+    });
+  }
+
   private buildTerrain(): void {
     const { map } = this.world;
     const { width, height } = map;
-    const row = width + 1;
+    for (let ty = 0; ty < height; ty++) for (let tx = 0; tx < width; tx++) this.paintTile(tx, ty);
+    for (let cy = 0; cy <= height; cy++) for (let cx = 0; cx <= width; cx++) this.blendCorner(cx, cy);
 
-    // A colour per tile, then blended at the corners so terrain types fade
-    // into each other instead of meeting along the grid.
-    const tileColour = new Float32Array(width * height * 3);
-    const colour = new THREE.Color();
+    const positions = new Float32Array(map.tileCount * 18);
+    const colours = new Float32Array(map.tileCount * 18);
     for (let ty = 0; ty < height; ty++) {
       for (let tx = 0; tx < width; tx++) {
-        const id = map.terrain[ty * width + tx]!;
-        colour.set(TERRAIN_COLOURS[id] ?? '#ff00ff').convertSRGBToLinear();
-        const shade = 0.9 + tileNoise(tx, ty) * 0.2;
-        tileColour.set([colour.r * shade, colour.g * shade, colour.b * shade], (ty * width + tx) * 3);
-      }
-    }
-    const cornerColour = new Float32Array(row * (height + 1) * 3);
-    for (let cy = 0; cy <= height; cy++) {
-      for (let cx = 0; cx <= width; cx++) {
-        let r = 0;
-        let g = 0;
-        let b = 0;
-        let n = 0;
-        // Rock keeps a hard edge, so it takes no part in the blending.
-        for (let oy = -1; oy <= 0; oy++) {
-          for (let ox = -1; ox <= 0; ox++) {
-            const tx = cx + ox;
-            const ty = cy + oy;
-            if (tx < 0 || ty < 0 || tx >= width || ty >= height) continue;
-            if (map.terrain[ty * width + tx] === Terrain.Rock) continue;
-            const at = (ty * width + tx) * 3;
-            r += tileColour[at]!;
-            g += tileColour[at + 1]!;
-            b += tileColour[at + 2]!;
-            n++;
-          }
-        }
-        if (n === 0) continue;
-        cornerColour.set([r / n, g / n, b / n], (cy * row + cx) * 3);
-      }
-    }
-
-    const positions = new Float32Array(width * height * 18);
-    const colours = new Float32Array(width * height * 18);
-    let at = 0;
-    let source = cornerColour;
-    let fixed = -1;
-    const put = (cx: number, cy: number): void => {
-      const corner = cy * row + cx;
-      const from = fixed === -1 ? corner * 3 : fixed;
-      positions[at] = cx * TILE;
-      positions[at + 1] = this.heights[corner]!;
-      positions[at + 2] = cy * TILE;
-      colours[at] = source[from]!;
-      colours[at + 1] = source[from + 1]!;
-      colours[at + 2] = source[from + 2]!;
-      at += 3;
-    };
-    for (let ty = 0; ty < height; ty++) {
-      for (let tx = 0; tx < width; tx++) {
-        // A rock tile is one flat colour; every other tile blends corner to corner.
-        const rock = map.terrain[ty * width + tx] === Terrain.Rock;
-        source = rock ? tileColour : cornerColour;
-        fixed = rock ? (ty * width + tx) * 3 : -1;
-        put(tx, ty);
-        put(tx, ty + 1);
-        put(tx + 1, ty + 1);
-        put(tx, ty);
-        put(tx + 1, ty + 1);
-        put(tx + 1, ty);
+        GameView.TRIANGLE_CORNERS.forEach(([ox, oy], k) => {
+          const at = ((ty * width + tx) * 6 + k) * 3;
+          positions[at] = (tx + ox) * TILE;
+          positions[at + 1] = this.heights[(ty + oy) * (width + 1) + tx + ox]!;
+          positions[at + 2] = (ty + oy) * TILE;
+        });
+        this.colourTile(tx, ty, colours);
       }
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+    this.groundColours = new THREE.BufferAttribute(colours, 3);
+    geometry.setAttribute('color', this.groundColours);
     geometry.computeVertexNormals();
     this.scene.add(new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true })));
 
@@ -249,53 +308,167 @@ export class GameView {
     this.scene.add(table);
   }
 
-  private buildTrees(oak: StaticModel, conifer: StaticModel): void {
+  /** Repaints the ground on and around a tile whose terrain has changed. */
+  private repaintAround(tile: number): void {
     const { map } = this.world;
-    const spots: { x: number; y: number; oak: boolean; turn: number; size: number; tint: number }[] = [];
-    for (let ty = 0; ty < map.height; ty++) {
-      for (let tx = 0; tx < map.width; tx++) {
-        if (map.terrain[ty * map.width + tx] !== Terrain.Forest) continue;
-        const a = tileNoise(tx * 3 + 1, ty * 3 + 2);
-        const b = tileNoise(tx * 5 + 7, ty * 5 + 3);
-        const c = tileNoise(tx * 7 + 5, ty * 7 + 11);
-        // Oaks spread wide, so they are planted sparsely among the firs.
-        const isOak = a < 0.16;
-        if (!isOak && a > 0.9) continue;
-        spots.push({
-          x: tx + 0.25 + b * 0.5,
-          y: ty + 0.25 + c * 0.5,
-          oak: isOak,
-          turn: b * Math.PI * 2,
-          size: (isOak ? 0.62 : 0.72) + c * 0.4,
-          tint: 0.82 + a * 0.3,
-        });
+    const tx = tile % map.width;
+    const ty = Math.floor(tile / map.width);
+    this.paintTile(tx, ty);
+    for (let oy = 0; oy <= 1; oy++) for (let ox = 0; ox <= 1; ox++) this.blendCorner(tx + ox, ty + oy);
+    const colours = this.groundColours.array as Float32Array;
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const nx = tx + ox;
+        const ny = ty + oy;
+        if (nx >= 0 && ny >= 0 && nx < map.width && ny < map.height) this.colourTile(nx, ny, colours);
       }
     }
+    this.groundColours.needsUpdate = true;
+  }
+
+  // ---- Trees, bushes and deposits ---------------------------------------------
+
+  /** Stands one copy of a model on each of the given tiles. */
+  private addProps(model: StaticModel, placements: readonly Placement[]): void {
+    if (placements.length === 0) return;
     const place = new THREE.Matrix4();
     const turn = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
     const colour = new THREE.Color();
-    for (const [model, wantOak] of [
-      [oak, true],
-      [conifer, false],
-    ] as const) {
-      const mine = spots.filter((s) => s.oak === wantOak);
-      for (const part of model.parts) {
-        const mesh = new THREE.InstancedMesh(part.geometry, part.material, mine.length);
-        mine.forEach((s, i) => {
-          turn.setFromAxisAngle(up, s.turn);
-          place.compose(
-            new THREE.Vector3(s.x * TILE, this.heightAt(s.x, s.y) - 0.05, s.y * TILE),
-            turn,
-            new THREE.Vector3(s.size, s.size, s.size),
-          );
-          mesh.setMatrixAt(i, place.multiply(part.matrix));
-          mesh.setColorAt(i, colour.setScalar(s.tint));
-        });
-        mesh.frustumCulled = false;
-        this.scene.add(mesh);
+    const meshes = model.parts.map((part) => {
+      const mesh = new THREE.InstancedMesh(part.geometry, part.material, placements.length);
+      placements.forEach((p, i) => {
+        turn.setFromAxisAngle(up, p.turn);
+        place.compose(
+          new THREE.Vector3(p.x * TILE, this.heightAt(p.x, p.y) - 0.05, p.y * TILE),
+          turn,
+          new THREE.Vector3(p.size, p.size, p.size),
+        );
+        mesh.setMatrixAt(i, place.multiply(part.matrix));
+        mesh.setColorAt(i, colour.setScalar(p.tint));
+      });
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      return mesh;
+    });
+    placements.forEach((p, index) => this.propOfTile.set(p.tile, { meshes, index }));
+  }
+
+  private buildProps(): void {
+    const { map } = this.world;
+    const lists: Record<string, Placement[]> = { oak: [], conifer: [], berries: [], stone: [], gold: [] };
+    for (let ty = 0; ty < map.height; ty++) {
+      for (let tx = 0; tx < map.width; tx++) {
+        const tile = ty * map.width + tx;
+        const a = tileNoise(tx * 3 + 1, ty * 3 + 2);
+        const b = tileNoise(tx * 5 + 7, ty * 5 + 3);
+        const c = tileNoise(tx * 7 + 5, ty * 7 + 11);
+        switch (map.terrain[tile]) {
+          case Terrain.Forest: {
+            // One tree to a tile. Oaks spread wide, so they are few among the firs.
+            const isOak = a < 0.14;
+            (isOak ? lists.oak! : lists.conifer!).push({
+              tile,
+              x: tx + 0.3 + b * 0.4,
+              y: ty + 0.3 + c * 0.4,
+              turn: b * Math.PI * 2,
+              size: (isOak ? 0.6 : 0.72) + c * 0.38,
+              tint: 0.82 + a * 0.3,
+            });
+            break;
+          }
+          case Terrain.Berries:
+            lists.berries!.push({ tile, x: tx + 0.5, y: ty + 0.5, turn: a * Math.PI * 2, size: 0.92 + b * 0.2, tint: 0.92 + c * 0.16 });
+            break;
+          case Terrain.Stone:
+          case Terrain.Gold:
+            (map.terrain[tile] === Terrain.Stone ? lists.stone! : lists.gold!).push({
+              tile,
+              x: tx + 0.5,
+              y: ty + 0.5,
+              turn: Math.floor(a * 4) * (Math.PI / 2),
+              size: 0.9 + b * 0.18,
+              tint: 0.94 + c * 0.12,
+            });
+            break;
+        }
       }
     }
+    this.addProps(this.models.oak, lists.oak!);
+    this.addProps(this.models.conifer, lists.conifer!);
+    this.addProps(this.models.berries, lists.berries!);
+    this.addProps(this.models.stone, lists.stone!);
+    this.addProps(this.models.gold, lists.gold!);
+  }
+
+  /** Brings the scene up to date with tiles that have changed: felled trees, worked-out deposits. */
+  private syncTerrain(): void {
+    const { terrain, tileCount } = this.world.map;
+    const seen = this.seenTerrain;
+    const nothing = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let tile = 0; tile < tileCount; tile++) {
+      if (terrain[tile] === seen[tile]) continue;
+      seen[tile] = terrain[tile]!;
+      const prop = this.propOfTile.get(tile);
+      if (prop !== undefined) {
+        for (const mesh of prop.meshes) {
+          mesh.setMatrixAt(prop.index, nothing);
+          mesh.instanceMatrix.needsUpdate = true;
+        }
+        this.propOfTile.delete(tile);
+      }
+      this.repaintAround(tile);
+      this.onTileChanged?.(tile);
+    }
+  }
+
+  // ---- Buildings -------------------------------------------------------------
+
+  private syncBuildings(): void {
+    const { world } = this;
+    for (const [slot, shown] of this.buildings) {
+      if (world.isAlive(shown.id)) continue;
+      this.scene.remove(shown.group);
+      this.buildings.delete(slot);
+    }
+    for (let slot = 0; slot < world.highWater; slot++) {
+      if (world.alive[slot] === 0 || world.mobile[slot] === 1 || this.buildings.has(slot)) continue;
+      const model = this.models.buildings[world.entityType[slot]!];
+      if (model === undefined) continue;
+      const team = this.teamLinear[world.owner[slot]! % this.teamLinear.length]!;
+      const group = new THREE.Group();
+      for (const part of model.parts) {
+        let material = part.material;
+        if (part.team) {
+          material = part.material.clone();
+          (material as THREE.MeshStandardMaterial).color.copy(team);
+        }
+        const mesh = new THREE.Mesh(part.geometry, material);
+        mesh.matrixAutoUpdate = false;
+        mesh.matrix.copy(part.matrix);
+        group.add(mesh);
+      }
+      const x = toFloat(world.posX[slot]!);
+      const y = toFloat(world.posY[slot]!);
+      group.position.set(x * TILE, this.heightAt(x, y), y * TILE);
+      this.scene.add(group);
+      this.buildings.set(slot, { id: world.idAt(slot), group });
+    }
+  }
+
+  /** The building standing on a tile, if any. */
+  private buildingOn(tile: number): EntityId | null {
+    const { world } = this;
+    const tx = tile % world.map.width;
+    const ty = Math.floor(tile / world.map.width);
+    for (let slot = 0; slot < world.highWater; slot++) {
+      if (world.alive[slot] === 0 || world.mobile[slot] === 1) continue;
+      const half = ENTITY_TYPES[world.entityType[slot]!]!.footprint >> 1;
+      const cx = world.posX[slot]! >> 16;
+      const cy = world.posY[slot]! >> 16;
+      if (Math.abs(tx - cx) <= half && Math.abs(ty - cy) <= half) return world.idAt(slot);
+    }
+    return null;
   }
 
   // ---- Units -----------------------------------------------------------------
@@ -343,11 +516,13 @@ export class GameView {
   private drawUnits(alpha: number, dt: number, selected: ReadonlySet<number>): void {
     const { world } = this;
     const tickSeconds = 1 / world.config.tickRate;
+    const batchOfType: (UnitBatch | undefined)[] = [];
     for (const batch of this.batches) {
+      batchOfType[batch.type] = batch;
       batch.count = 0;
       let living = 0;
       for (let slot = 0; slot < world.highWater; slot++) {
-        if (world.alive[slot] === 1 && world.entityType[slot] === this.batches.indexOf(batch)) living++;
+        if (world.alive[slot] === 1 && world.entityType[slot] === batch.type) living++;
       }
       if (living > batch.capacity) this.growBatch(batch, Math.max(living, batch.capacity * 2));
     }
@@ -359,7 +534,7 @@ export class GameView {
 
     for (let slot = 0; slot < world.highWater; slot++) {
       if (world.alive[slot] === 0) continue;
-      const batch = this.batches[world.entityType[slot]!];
+      const batch = batchOfType[world.entityType[slot]!];
       if (batch === undefined) continue;
       const curX = toFloat(world.posX[slot]!);
       const curY = toFloat(world.posY[slot]!);
@@ -379,12 +554,16 @@ export class GameView {
       const speed = Math.hypot(curX - this.prevX[slot]!, curY - this.prevY[slot]!) / tickSeconds;
       const nominal = toFloat(world.speed[slot]!) / tickSeconds;
       const walking = speed > nominal * 0.2;
-      if (walking !== (this.walking[slot] === 1)) {
-        this.walking[slot] = walking ? 1 : 0;
+      // Villagers swing their axe at whatever they are gathering, for now.
+      const working = !walking && world.job[slot] === Job.Harvesting && batch.model.clips.has('chop');
+      const clipName = walking ? 'walk' : working ? 'chop' : 'idle';
+      const clipCode = walking ? 1 : working ? 2 : 0;
+      if (clipCode !== this.clipOf[slot]) {
+        this.clipOf[slot] = clipCode;
         this.animTime[slot] = (slot * 0.37) % 1;
       }
       this.animTime[slot] = this.animTime[slot]! + dt * (walking ? Math.max(0.5, speed / nominal) : 1);
-      const clip = batch.model.clips.get(walking ? 'walk' : 'idle')!;
+      const clip = batch.model.clips.get(clipName)!;
       const frame = Math.floor(this.animTime[slot]! * BAKE_FPS) % clip.frames;
 
       const index = batch.count++;
@@ -495,15 +674,19 @@ export class GameView {
     this.distance *= factor;
   }
 
-  /** The point on the ground under a screen position, in tiles, or null if it misses the map. */
-  screenToGround(clientX: number, clientY: number): { x: number; y: number } | null {
+  private aim(clientX: number, clientY: number): THREE.Ray {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
-    const { origin, direction } = this.raycaster.ray;
+    return this.raycaster.ray;
+  }
+
+  /** How far along a ray it meets the ground, or null if it never comes down. */
+  private groundDistance(ray: THREE.Ray): number | null {
+    const { origin, direction } = ray;
     if (direction.y >= -1e-4) return null;
     // Walk down the ray until it dips below the ground, then narrow it down.
     const above = (t: number): number =>
@@ -524,11 +707,55 @@ export class GameView {
       if (above(mid) > 0) near = mid;
       else hit = mid;
     }
-    const x = (origin.x + direction.x * hit) / TILE;
-    const y = (origin.z + direction.z * hit) / TILE;
+    return hit;
+  }
+
+  /** The point on the ground under a screen position, in tiles, or null if it misses the map. */
+  screenToGround(clientX: number, clientY: number): { x: number; y: number } | null {
+    const ray = this.aim(clientX, clientY);
+    const hit = this.groundDistance(ray);
+    if (hit === null) return null;
+    const x = (ray.origin.x + ray.direction.x * hit) / TILE;
+    const y = (ray.origin.z + ray.direction.z * hit) / TILE;
     const { map } = this.world;
     if (x < 0 || y < 0 || x >= map.width || y >= map.height) return null;
     return { x, y };
+  }
+
+  /**
+   * What a screen position is over: a tree or deposit, a building, or bare
+   * ground. Tall things are hit where they are seen, not where the ground
+   * behind them is.
+   */
+  pick(clientX: number, clientY: number): Pick | null {
+    const { map } = this.world;
+    const ray = this.aim(clientX, clientY);
+    const hit = this.groundDistance(ray);
+    if (hit === null) return null;
+    const { origin, direction } = ray;
+    const classify = (x: number, y: number, lift: number): Pick | null => {
+      if (x < 0 || y < 0 || x >= map.width || y >= map.height) return null;
+      const tile = Math.floor(y) * map.width + Math.floor(x);
+      const terrain = map.terrain[tile]!;
+      if (resourceOfTerrain(terrain) !== -1 && lift <= (PROP_HEIGHT[terrain] ?? 0)) return { kind: 'tile', tile };
+      if (map.blocked[tile] === 1 && lift <= BUILDING_HEIGHT) {
+        const id = this.buildingOn(tile);
+        if (id !== null) return { kind: 'building', id };
+      }
+      return null;
+    };
+    // Come down the last stretch of the ray a quarter of a metre at a time.
+    const from = Math.max(0, hit - 16);
+    for (let t = from; t < hit; t += 0.25) {
+      const x = (origin.x + direction.x * t) / TILE;
+      const y = (origin.z + direction.z * t) / TILE;
+      const found = classify(x, y, origin.y + direction.y * t - this.heightAt(x, y));
+      if (found !== null) return found;
+    }
+    const x = (origin.x + direction.x * hit) / TILE;
+    const y = (origin.z + direction.z * hit) / TILE;
+    if (x < 0 || y < 0 || x >= map.width || y >= map.height) return null;
+    return classify(x, y, 0) ?? { kind: 'ground', x, y };
   }
 
   /** Where a point above the ground appears on screen, in page pixels. */
@@ -563,11 +790,11 @@ export class GameView {
   // ---- Frame -----------------------------------------------------------------
 
   /** Shows a ring on the ground where an order was given. */
-  addMarker(x: number, y: number, queued: boolean): void {
+  addMarker(x: number, y: number, kind: keyof typeof MARKER_COLOURS): void {
     const mesh = new THREE.Mesh(
       new THREE.RingGeometry(0.78, 1, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({
-        color: new THREE.Color(queued ? '#e9c46a' : '#bfe38a'),
+        color: new THREE.Color(MARKER_COLOURS[kind]),
         transparent: true,
         depthWrite: false,
       }),
@@ -582,6 +809,8 @@ export class GameView {
     this.seconds += dt;
     this.resize();
     this.placeCamera();
+    this.syncTerrain();
+    this.syncBuildings();
     this.drawUnits(alpha, dt, selected);
     for (let i = this.markers.length - 1; i >= 0; i--) {
       const marker = this.markers[i]!;

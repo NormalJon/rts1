@@ -5,9 +5,9 @@
  * simulation. Orders do, as commands through the session.
  */
 
+import { ENTITY_TYPES, resourceOfTerrain } from '../../sim/entityTypes';
 import { fromFloat } from '../../sim/units';
-import { ENTITY_TYPES } from '../../sim/entityTypes';
-import { entityIndex, type EntityId } from '../../sim/world';
+import { entityIndex, Job, MoveState, type EntityId } from '../../sim/world';
 import type { LocalSession } from '../../session/localSession';
 import type { GameView } from './view';
 
@@ -17,6 +17,9 @@ const DOUBLE_CLICK_MS = 320;
 const PAN_PER_SECOND = 1.5;
 
 const PLURALS: Record<string, string> = { spearman: 'spearmen', villager: 'villagers' };
+const RESOURCE_VERBS = ['Foraging', 'Felling', 'Quarrying', 'Mining'];
+const RESOURCE_SOURCES = ['Berry bush', 'Tree', 'Stone outcrop', 'Gold ore'];
+const RESOURCE_NAMES = ['food', 'wood', 'stone', 'gold'];
 
 export class Controls {
   readonly selected = new Set<EntityId>();
@@ -27,6 +30,11 @@ export class Controls {
   private lastClick = { time: 0, unit: -1 };
   private lastGroupKey = { time: 0, digit: -1 };
   private alpha = 1;
+  /** A resource tile or building the player has clicked on to look at, when no units are selected. */
+  private inspected: { tile: number } | { building: EntityId } | null = null;
+  private idleCursor = 0;
+  private idleShown = -1;
+  private frames = 0;
 
   constructor(
     private readonly player: number,
@@ -38,6 +46,7 @@ export class Controls {
       readonly selection: HTMLElement;
       readonly groups: HTMLElement;
       readonly stop: HTMLButtonElement;
+      readonly idle: HTMLButtonElement;
     },
   ) {
     canvas.addEventListener('pointerdown', (event) => this.pointerDown(event));
@@ -60,6 +69,10 @@ export class Controls {
       this.stop();
       canvas.focus();
     });
+    hud.idle.addEventListener('click', () => {
+      this.selectIdleVillager();
+      canvas.focus();
+    });
     hud.groups.addEventListener('click', (event) => {
       const chip = (event.target as HTMLElement).closest<HTMLElement>('[data-group]');
       if (chip) this.recallGroup(Number(chip.dataset.group), false);
@@ -79,8 +92,7 @@ export class Controls {
       return;
     }
     if (event.button === 2) {
-      const at = this.view.screenToGround(event.clientX, event.clientY);
-      if (at) this.order(at.x, at.y, event.shiftKey);
+      this.orderAt(event.clientX, event.clientY, event.shiftKey);
       return;
     }
     if (event.button !== 0) return;
@@ -142,7 +154,7 @@ export class Controls {
   /** The player's own living units with where each appears on screen. */
   private *ownUnitsOnScreen(): Generator<{ id: EntityId; slot: number; x: number; y: number }> {
     const { world } = this.session;
-    for (const id of world.livingEntities(this.player)) {
+    for (const id of world.livingUnits(this.player)) {
       const slot = entityIndex(id);
       const at = this.view.unitPosition(slot, this.alpha);
       const screen = this.view.toScreen(at.x, at.y, 0.9);
@@ -164,14 +176,19 @@ export class Controls {
     if (best === null) {
       // On a touch screen there is no right button, so a tap on open ground is the order.
       if (touch && this.selected.size > 0) {
-        const at = this.view.screenToGround(x, y);
-        if (at) this.order(at.x, at.y, false);
+        this.orderAt(x, y, false);
       } else if (!add) {
         this.selected.clear();
+        // Nothing to select here, but there may be something to look at.
+        const under = this.view.pick(x, y);
+        if (under?.kind === 'tile') this.inspected = { tile: under.tile };
+        else if (under?.kind === 'building') this.inspected = { building: under.id };
+        else this.inspected = null;
       }
       this.lastClick = { time: 0, unit: -1 };
       return;
     }
+    this.inspected = null;
     const { world } = this.session;
     const double = now - this.lastClick.time < DOUBLE_CLICK_MS && this.lastClick.unit === best.id;
     this.lastClick = { time: now, unit: best.id };
@@ -196,6 +213,7 @@ export class Controls {
   }
 
   private selectInBox(x0: number, y0: number, x1: number, y1: number, add: boolean): void {
+    this.inspected = null;
     const left = Math.min(x0, x1);
     const right = Math.max(x0, x1);
     const top = Math.min(y0, y1);
@@ -208,6 +226,38 @@ export class Controls {
 
   // ---- Orders ----------------------------------------------------------------
 
+  /**
+   * The right-click: whatever makes sense for what is under the pointer. On a
+   * tree, bush or deposit, gather from it; on your own town centre, hand in;
+   * anywhere else, go there.
+   */
+  private orderAt(clientX: number, clientY: number, queue: boolean): void {
+    this.dropTheDead();
+    if (this.selected.size === 0) return;
+    const { world } = this.session;
+    const target = this.view.pick(clientX, clientY);
+    if (target === null) return;
+    const units = [...this.selected];
+    if (target.kind === 'tile' && resourceOfTerrain(world.map.terrain[target.tile]!) !== -1) {
+      this.session.issue(this.player, { kind: 'gather', units, tile: target.tile });
+      this.view.addMarker((target.tile % world.map.width) + 0.5, Math.floor(target.tile / world.map.width) + 0.5, 'work');
+      return;
+    }
+    if (target.kind === 'building') {
+      const slot = entityIndex(target.id);
+      const x = world.posX[slot]! / 65536;
+      const y = world.posY[slot]! / 65536;
+      if (world.owner[slot] === this.player && ENTITY_TYPES[world.entityType[slot]!]!.dropOff) {
+        this.session.issue(this.player, { kind: 'deliver', units, target: target.id });
+        this.view.addMarker(x, y, 'work');
+      } else {
+        this.order(x, y, queue);
+      }
+      return;
+    }
+    if (target.kind === 'ground') this.order(target.x, target.y, queue);
+  }
+
   /** Sends the selection to a place. With queue, as a waypoint after what they are already doing. */
   order(x: number, y: number, queue: boolean): void {
     this.dropTheDead();
@@ -219,7 +269,31 @@ export class Controls {
       y: fromFloat(y),
       queue,
     });
-    this.view.addMarker(x, y, queue);
+    this.view.addMarker(x, y, queue ? 'queue' : 'move');
+  }
+
+  /** The player's villagers with nothing to do, in slot order. */
+  private idleVillagers(): EntityId[] {
+    const { world } = this.session;
+    return world.livingUnits(this.player).filter((id) => {
+      const slot = entityIndex(id);
+      return (
+        ENTITY_TYPES[world.entityType[slot]!]!.carries > 0 &&
+        world.job[slot] === Job.None &&
+        world.moveState[slot] === MoveState.Idle
+      );
+    });
+  }
+
+  /** Selects the next idle villager and brings them into view. */
+  selectIdleVillager(): void {
+    const idle = this.idleVillagers();
+    if (idle.length === 0) return;
+    this.idleCursor = (this.idleCursor + 1) % idle.length;
+    this.selected.clear();
+    this.selected.add(idle[this.idleCursor]!);
+    this.jumpToSelection();
+    this.refreshHud();
   }
 
   stop(): void {
@@ -269,6 +343,9 @@ export class Controls {
         this.selected.clear();
         this.refreshHud();
         break;
+      case '.':
+        this.selectIdleVillager();
+        break;
       case ' ':
         event.preventDefault();
         this.jumpToSelection();
@@ -298,7 +375,7 @@ export class Controls {
   jumpToSelection(): void {
     const { world } = this.session;
     this.dropTheDead();
-    const ids = this.selected.size > 0 ? [...this.selected] : world.livingEntities(this.player);
+    const ids = this.selected.size > 0 ? [...this.selected] : world.livingUnits(this.player);
     if (ids.length === 0) return;
     let x = 0;
     let y = 0;
@@ -321,7 +398,8 @@ export class Controls {
     if (this.keysDown.has('ArrowDown')) this.view.pan(0, step);
     const before = this.selected.size;
     this.dropTheDead();
-    if (this.selected.size !== before) this.refreshHud();
+    // What villagers are doing changes without the player's say, so look again a few times a second.
+    if (this.selected.size !== before || ++this.frames % 12 === 0) this.refreshHud();
   }
 
   private refreshHud(): void {
@@ -337,8 +415,43 @@ export class Controls {
         const name = ENTITY_TYPES[kind]?.name ?? 'unit';
         return `${n} ${n === 1 ? name : (PLURALS[name] ?? `${name}s`)}`;
       });
-    this.hud.selection.textContent = parts.length > 0 ? parts.join(' · ') : 'Nothing selected';
+    // For a single villager, say what they are up to.
+    let doing = '';
+    if (this.selected.size === 1) {
+      const slot = entityIndex([...this.selected][0]!);
+      if (ENTITY_TYPES[world.entityType[slot]!]!.carries > 0) {
+        const job = world.job[slot];
+        const resource = resourceOfTerrain(world.jobTerrain[slot]!);
+        if (job === Job.ToDropOff) doing = 'Carrying a load home';
+        else if (job === Job.ToResource || job === Job.Harvesting) doing = RESOURCE_VERBS[resource] ?? 'Working';
+        else doing = 'Idle';
+        if (world.carry[slot]! > 0) doing += ` · carrying ${world.carry[slot]}`;
+      }
+    }
+    let summary = parts.length > 0 ? parts.join(' · ') : 'Nothing selected';
+    if (this.selected.size > 0) this.inspected = null;
+    const looking = this.inspected;
+    if (looking !== null && 'tile' in looking) {
+      const resource = resourceOfTerrain(world.map.terrain[looking.tile]!);
+      if (resource === -1) this.inspected = null;
+      else summary = `${RESOURCE_SOURCES[resource]} · ${world.map.amount[looking.tile]} ${RESOURCE_NAMES[resource]} left`;
+    } else if (looking !== null) {
+      if (!world.isAlive(looking.building)) this.inspected = null;
+      else {
+        const slot = entityIndex(looking.building);
+        const name = ENTITY_TYPES[world.entityType[slot]!]!.name;
+        summary = `${name[0]!.toUpperCase()}${name.slice(1)} · ${world.owner[slot] === this.player ? 'yours' : 'the enemy\'s'}`;
+      }
+    }
+    this.hud.selection.textContent = doing ? `${summary} — ${doing}` : summary;
     this.hud.stop.disabled = this.selected.size === 0;
+
+    const idle = this.idleVillagers().length;
+    if (idle !== this.idleShown) {
+      this.idleShown = idle;
+      this.hud.idle.hidden = idle === 0;
+      this.hud.idle.textContent = `${idle} idle ${idle === 1 ? 'villager' : 'villagers'}`;
+    }
 
     this.hud.groups.replaceChildren(
       ...this.groups.flatMap((members, digit) => {

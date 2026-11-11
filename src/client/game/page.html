@@ -32,7 +32,7 @@
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
     display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: auto 1fr auto; gap: 12px;
-    grid-template-areas: "title . tools" ". . help" "map bar bar";
+    grid-template-areas: "title stores tools" ". . help" "map bar bar";
   }
   .hud > * { pointer-events: auto; min-width: 0; }
   .panel { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 6px; }
@@ -40,6 +40,12 @@
   .title { grid-area: title; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; align-self: start; max-width: min(72vw, 560px); }
   h1 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; letter-spacing: 0.01em; }
   #stats { font-family: var(--font-data); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+  .stores { grid-area: stores; align-self: start; justify-self: center; display: flex; gap: 4px 18px; flex-wrap: wrap; justify-content: center; padding: 7px 14px; margin: 0; }
+  .stores div { display: flex; align-items: center; gap: 7px; }
+  .stores svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
+  .stores dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .stores dd { margin: 0; font-family: var(--font-data); font-size: 14px; font-variant-numeric: tabular-nums; min-width: 3ch; }
 
   .tools { grid-area: tools; display: flex; gap: 8px; align-self: start; justify-self: end; }
   button {
@@ -61,7 +67,9 @@
   #minimap { width: 168px; height: 168px; max-width: 100%; display: block; cursor: pointer; touch-action: none; border-radius: 3px; }
 
   .bar { grid-area: bar; align-self: end; justify-self: center; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; }
+  .above { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; }
   #groups { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  #btn-idle { padding: 4px 10px; font-size: 12.5px; border-color: var(--woad); }
   .group-chip { padding: 3px 9px 3px 4px; display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-data); font-size: 12px; font-variant-numeric: tabular-nums; }
   .group-chip b { display: inline-grid; place-items: center; min-width: 1.5em; height: 1.5em; border-radius: 3px; background: var(--woad); color: #0c1620; font-weight: 500; }
   .command { display: flex; align-items: center; gap: 14px; padding: 8px 8px 8px 14px; }
@@ -73,7 +81,8 @@
   #fatal { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 15px; background: var(--bg); color: var(--ink); }
 
   @media (max-width: 640px) {
-    .hud { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "title tools" "help help" "map bar"; gap: 8px; }
+    .hud { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto 1fr auto; grid-template-areas: "title tools" "stores stores" "help help" "map bar"; gap: 8px; }
+    .stores { justify-self: start; }
     .wide, #stats, kbd { display: none; }
     #minimap { width: 104px; height: 104px; }
     .bar { justify-self: stretch; align-items: stretch; min-width: 0; }
@@ -88,9 +97,16 @@
 
   <div class="hud">
     <div class="title panel">
-      <h1>Playtest<span class="wide"> · map, movement and pathfinding</span></h1>
+      <h1>Playtest<span class="wide"> · workers and resources</span></h1>
       <div id="stats">starting…</div>
     </div>
+
+    <dl class="stores panel" aria-label="Your stores">
+      <div><dt>Food</dt><svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><rect x="15" y="9" width="2" height="21" rx="1"/><ellipse cx="16" cy="5.6" rx="2.6" ry="4.4"/><ellipse cx="11.3" cy="11" rx="2.4" ry="4.4" transform="rotate(-38 11.3 11)"/><ellipse cx="20.7" cy="11" rx="2.4" ry="4.4" transform="rotate(38 20.7 11)"/><ellipse cx="11.3" cy="16.6" rx="2.4" ry="4.4" transform="rotate(-38 11.3 16.6)"/><ellipse cx="20.7" cy="16.6" rx="2.4" ry="4.4" transform="rotate(38 20.7 16.6)"/><ellipse cx="11.3" cy="22.2" rx="2.4" ry="4.4" transform="rotate(-38 11.3 22.2)"/><ellipse cx="20.7" cy="22.2" rx="2.4" ry="4.4" transform="rotate(38 20.7 22.2)"/></svg><dd id="stock-food" title="Food">0</dd></div>
+      <div><dt>Wood</dt><svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><path fill-rule="evenodd" d="M3.2 22.6a6.2 6.2 0 1 0 12.4 0a6.2 6.2 0 1 0 -12.4 0zM5.1 22.6a4.3 4.3 0 1 0 8.6 0a4.3 4.3 0 1 0 -8.6 0zM7.1 22.6a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0zM16.4 22.6a6.2 6.2 0 1 0 12.4 0a6.2 6.2 0 1 0 -12.4 0zM18.3 22.6a4.3 4.3 0 1 0 8.6 0a4.3 4.3 0 1 0 -8.6 0zM20.3 22.6a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0zM9.8 11.2a6.2 6.2 0 1 0 12.4 0a6.2 6.2 0 1 0 -12.4 0zM11.7 11.2a4.3 4.3 0 1 0 8.6 0a4.3 4.3 0 1 0 -8.6 0zM13.7 11.2a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0z"/></svg><dd id="stock-wood" title="Wood">0</dd></div>
+      <div><dt>Stone</dt><svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><path d="M3.5 27 6.6 14.4 15 18.6 13.6 27z"/><path d="M8 12.4 14.2 5.6 22.8 7.6 16.6 16.8z"/><path d="M18.2 18 24.2 9.2 28.8 17.4 27.4 27H15.4z"/></svg><dd id="stock-stone" title="Stone">0</dd></div>
+      <div><dt>Gold</dt><svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><path fill-rule="evenodd" d="M2 11a9 9 0 1 0 18 0a9 9 0 1 0-18 0zM9.8 4.6h2.4v5.2h5.2v2.4h-5.2v5.2H9.8v-5.2H4.6V9.8h5.2z"/><rect x="15.5" y="21" width="14.5" height="2.9" rx="1.2"/><rect x="15.5" y="24.8" width="14.5" height="2.9" rx="1.2"/><rect x="15.5" y="28.6" width="14.5" height="2.9" rx="1.2"/></svg><dd id="stock-gold" title="Gold">0</dd></div>
+    </dl>
 
     <div class="tools">
       <button type="button" id="btn-help" aria-expanded="true" aria-controls="help">Controls</button>
@@ -103,9 +119,10 @@
         <dt>drag</dt><dd>Select the units inside the box</dd>
         <dt>click</dt><dd>Select one; twice for all of its kind in view</dd>
         <dt>shift</dt><dd>Add to, or take from, the selection</dd>
-        <dt>right-click</dt><dd>Send them there</dd>
+        <dt>right-click</dt><dd>Send them there. On a tree, berry bush, stone or gold, villagers gather from it; on your town centre, they hand in</dd>
         <dt>shift + right</dt><dd>Add a waypoint</dd>
         <dt>S</dt><dd>Stop</dd>
+        <dt>.</dt><dd>Jump to the next idle villager</dd>
         <dt>shift + 1–9</dt><dd>Save the selection as a group (ctrl works too, outside a browser tab)</dd>
         <dt>1–9</dt><dd>Recall a group; twice to jump to it</dd>
         <dt>arrows</dt><dd>Move the view, or drag with the middle button</dd>
@@ -113,13 +130,16 @@
         <dt>space</dt><dd>Jump to your selection</dd>
         <dt>esc</dt><dd>Clear the selection</dd>
       </dl>
-      <p>You lead the blue company, in the north-west. The red one holds the far bank; it will not move until the game has an AI. The river can only be crossed at its three fords.</p>
+      <p>You lead the blue side, in the north-west. Berries, trees, gold and stone lie around your town centre: put your six villagers to work. The red side works its own land across the river and will not fight until the game has an AI.</p>
     </aside>
 
     <div class="map panel"><canvas id="minimap" aria-label="Map. Click to move the view; right-click to send the selection."></canvas></div>
 
     <div class="bar">
-      <div id="groups"></div>
+      <div class="above">
+        <button type="button" id="btn-idle" hidden>0 idle villagers</button>
+        <div id="groups"></div>
+      </div>
       <div class="command panel">
         <span id="selection">Nothing selected</span>
         <button type="button" id="btn-stop" disabled>

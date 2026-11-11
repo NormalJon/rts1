@@ -1,15 +1,15 @@
 # Medieval RTS (working title)
 
 A historical real-time strategy game covering roughly 800–1600 CE. This
-repository holds the first two steps of the core build: the deterministic
-simulation loop, then maps, pathfinding, unit movement and a 3D view to
-play it in.
+repository holds the first three steps of the core build: the deterministic
+simulation loop; maps, pathfinding and unit movement with a 3D view to play
+it in; then resources, gathering and the town centre.
 
 ## Commands
 
 ```bash
 npm install
-npm test               # maths, maps, pathfinding, movement, determinism, source rules
+npm test               # maths, maps, pathfinding, movement, economy, determinism, source rules
 npm run typecheck
 npm run dev            # pages at http://localhost:5173
 npm run build          # writes dist/playtest.html and dist/tick-rate-lab.html
@@ -52,6 +52,17 @@ npm run check:browser  # reference match must give the same checksum in a browse
 - **Movement.** Three passes per tick: intent, separation, commit
   (`src/sim/movement.ts`). Each pass reads only what the previous one wrote, so
   the result does not depend on the order units are visited in.
+- **Economy.** Food, wood, stone and gold sit on the map as terrain with an
+  amount per tile, and a worked-out tile becomes open grass. Villagers make a
+  round trip between a resource and the nearest drop-off
+  (`src/sim/economy.ts`). Nothing is created or lost on the way; the tests
+  check that on every tick.
+- **A map that changes.** Felled trees and buildings alter what can be walked
+  on. `GameMap` keeps passability, connected regions and a running state
+  checksum up to date change by change, and a route search in progress starts
+  over when the map changes under it.
+- **Entity types.** `src/sim/entityTypes.ts` is the one table of units and
+  buildings: speed, size, carrying capacity, footprint.
 
 ## Rules for code in `src/sim`
 
