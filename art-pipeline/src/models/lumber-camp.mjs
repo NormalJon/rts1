@@ -77,7 +77,7 @@ export function build() {
 
   // Felled trunks stacked between stakes, butt ends to the front.
   const tx = 1.74;
-  m.at(T(tx, 0, -2.58), () => logPile(m, [3, 2, 1], { r: 0.27, length: 3.25, sides: 6, ragged: 0.28 }));
+  m.at(T(tx, 0, -2.58), () => logPile(m, [3, 2, 1], { r: 0.27, length: 3.25, sides: 6, ragged: 0.28, barks: [C.bark, C.barkPine, C.timberMid] }));
   m.color(C.timberMid, 0.08);
   for (const sx of [-1, 1]) {
     for (const z of [-2.0, 0.1]) m.at(T(tx + sx * 0.9, 0, z), () => m.cyl(0.07, 0.05, 1.05, 5, { bottom: false, phase: z }));
@@ -92,7 +92,7 @@ export function build() {
   }
   m.color(C.timber, 0.06).beam([-2.02, crossY - 0.1, sz], [-0.83, crossY - 0.1, sz], 0.1, 0.08, { top: false, bottom: false });
   m.at(T(-2.5, 0.94, sz), RZ(-Math.PI / 2), () => {
-    m.color(C.bark, 0.07).cyl(0.17, 0.16, 1.95, 6, { top: false, bottom: false });
+    m.color(C.barkPine, 0.07).cyl(0.17, 0.16, 1.95, 6, { top: false, bottom: false });
     m.color(C.timberLight, 0.05);
     disc(m, 0.16, 1.95, 6);
     disc(m, 0.17, 0, 6, { up: false });
@@ -120,7 +120,7 @@ export function build() {
   return {
     id: 'lumber-camp',
     label: 'Lumber camp',
-    note: 'Open shed under riven boards, with felled trunks, cordwood and a sawhorse. Where wood is brought. 3 by 3 tile plot.',
+    note: 'Open shed roofed with riven boards, felled trunks stacked beside it. Woodcutters bring timber here. 3 by 3 tile plot.',
     yaw: 0.5,
     plot: 3,
     roots: [{ name: 'lumber-camp', mesh: m.toMesh('lumber-camp') }],

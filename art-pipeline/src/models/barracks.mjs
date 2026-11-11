@@ -10,9 +10,9 @@ import { pennant, hippedThatch, groundPatch, stakeFence, roundShield, tub } from
 
 export function build() {
   const m = new MeshBuilder(53);
-  const L = 8.5, W = 3.6, wallH = 2.1;
+  const L = 8.5, W = 4.2, wallH = 2.1;
   const hl = L / 2, hw = W / 2;
-  const zc = -2.5; // centre line of the house, set back to leave the yard
+  const zc = -2.2; // centre line of the house, set back to leave the yard
   const zf = zc + hw, zb = zc - hw;
   const slope = 1.05, over = 0.3;
   const ex = hl + over, ez = hw + over;
@@ -20,11 +20,11 @@ export function build() {
   const eaveY = wallH + 0.15 - over * slope;
 
   // Trodden earth of the drill yard.
-  groundPatch(m.color(C.earth, 0.04), [[-4.42, zf - 0.05], [-4.42, 4.15], [-4.12, 4.45], [4.12, 4.45], [4.42, 4.15], [4.42, zf - 0.05]]);
+  groundPatch(m.color(C.earth, 0.04), [[-4.42, zf - 0.05], [-4.42, 4.08], [-4.12, 4.38], [4.12, 4.38], [4.42, 4.08], [4.42, zf - 0.05]]);
 
   // Walls of upright planks set edge to edge, one face a plank, their heads under the thatch.
   const stave = (i) => m.color(i % 2 ? C.plank : C.timberMid, 0.07);
-  const nLong = 21, nEnd = 9;
+  const nLong = 21, nEnd = 11;
   for (let i = 0; i < nLong; i++) {
     const x0 = -hl + (i * L) / nLong, x1 = -hl + ((i + 1) * L) / nLong;
     stave(i).poly([[x0, 0, zf], [x1, 0, zf], [x1, wallH, zf], [x0, wallH, zf]]);
@@ -56,14 +56,14 @@ export function build() {
 
   // Hipped thatch in four courses; the last stops in an upright end with a smoke hole.
   m.at(T(0, 0, zc), () => {
-    hippedThatch(m, { ex, ez, hip: 1.3, rise, eaveY }, {
+    hippedThatch(m, { ex, ez, hip: 2.0, rise, eaveY }, {
       step: 0.06, butt: 0.18, gablet: true,
       courses: [[0, 0.3, C.thatch], [0.27, 0.55, C.thatchMid], [0.52, 0.8, C.thatch], [0.76, 1, C.thatchMid]],
     });
   });
 
   // Yard fence: stakes and withy rails, with a gate gap between two posts.
-  const fx = 4.5, fz = 4.5, gate = 1.05;
+  const fx = 4.5, fz = 4.42, gate = 1.05;
   for (const sx of [-1, 1]) {
     stakeFence(m, [sx * fx, zf + 0.2], [sx * fx, fz]);
     stakeFence(m, [sx * fx, fz], [sx * gate, fz], { first: false, last: false });
@@ -71,7 +71,7 @@ export function build() {
   }
 
   // Practice posts, hacked thin and pale where the blows land.
-  for (const [x, z, h, turn] of [[-3.3, 1.0, 1.85, 0.3], [-2.25, 2.0, 1.7, 1.1]]) {
+  for (const [x, z, h, turn] of [[-3.55, 1.55, 1.85, 0.3], [-2.65, 1.7, 1.7, 1.1], [-1.75, 1.5, 1.8, 2.0]]) {
     m.at(T(x, 0, z), RY(turn), () => {
       m.color(C.timberMid, 0.07).cyl(0.16, 0.15, h * 0.5, 6, { top: false, bottom: false });
       m.color(C.timberLight, 0.07).at(T(0, h * 0.5, 0), () => m.cyl(0.15, 0.11, h * 0.24, 6, { top: false, bottom: false }));
@@ -81,7 +81,7 @@ export function build() {
 
   // Straw man on a stake: a bound truss of straw, a sack for a head under an old helmet,
   // and a shield hung on one arm of the cross-pole.
-  m.at(T(-0.95, 0, 3.0), RY(0.3), () => {
+  m.at(T(-2.5, 0, 3.15), RY(0.25), () => {
     m.color(C.timber, 0.06).cyl(0.07, 0.06, 1.55, 5, { top: false, bottom: false });
     m.beam([-0.62, 1.38, 0], [0.62, 1.38, 0], 0.08, 0.08);
     m.color(C.thatchMid, 0.08).at(T(0, 0.66, 0), () => m.frustum(0.34, 0.26, 0.52, 0.34, 0.82));
@@ -92,7 +92,7 @@ export function build() {
   });
 
   // Rack: spears leant on the top rail, shields on the lower one.
-  m.at(T(2.65, 0, 1.3), () => {
+  m.at(T(2.65, 0, 1.75), () => {
     const half = 1.5;
     m.color(C.timber, 0.06);
     for (const s of [-1, 1]) {
@@ -123,13 +123,14 @@ export function build() {
   });
   m.at(T(1.75, 0, zf + 0.5), () => tub(m));
 
-  // The owner's pennant on a pole at the gate.
+  // The owner's colours: shields hung along the front of the yard, and a pennant on a pole at the gate.
+  for (const x of [-3.45, -2.2, 2.2, 3.45]) m.at(T(x, 0.62, fz + 0.09), RX(Math.PI / 2 - 0.06), () => roundShield(m, 0.36));
   pennant(m, [gate, 1.4, fz], { height: 2.7, length: 1.35, drop: 0.6, yaw: Math.PI - 0.12, pole: 0.045 });
 
   return {
     id: 'barracks',
     label: 'Barracks',
-    note: 'Plain longhouse under hipped thatch, with a drill yard: practice posts, a straw man, spears and shields. Trains spearmen on a 5 by 5 tile plot.',
+    note: 'Plain longhouse under hipped thatch, with a drill yard of practice posts, spears and shields. Trains spearmen on a 5 by 5 tile plot.',
     yaw: -0.5,
     plot: 5,
     roots: [{ name: 'barracks', mesh: m.toMesh('barracks') }],

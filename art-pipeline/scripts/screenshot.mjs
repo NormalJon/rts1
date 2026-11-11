@@ -1,5 +1,9 @@
 // Renders sample-sheet.html in headless Chromium and saves screenshots for review.
 // The page is wrapped the way the publisher wraps it; CDN scripts are served from node_modules.
+//   node scripts/screenshot.mjs                    everything
+//   node scripts/screenshot.mjs scene              one section: pages, closeups, icons, scene, village
+//   node scripts/screenshot.mjs view <id> <yaw> <pitch> [name]    one card from one angle
+//   node scripts/screenshot.mjs review [id ...]    each building on its plot from four sides
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -205,20 +209,22 @@ const plotOutlines = (id, x = 0, z = 0) => [
 // `review <id> ...`: each building alone on its plot, four views in one picture: the game
 // camera, two lower three-quarter views, and a plan. A villager stands beside it for scale.
 // The dark square is the edge of the plot, the pale one the limit the model must keep inside.
-if (only[0] === 'review') {
-  const ids = only.length > 1 ? only.slice(1) : Object.keys(plotOf);
+async function reviews(ids) {
   for (const id of ids) {
     if (!plotOf[id]) throw new Error(`${id} has no plot in models/manifest.json`);
     const half = plotOf[id], d = half * 5.6;
     const scene = await openScene([{ id, x: 0, z: 0 }, { id: 'villager', x: half + 1, z: half - 1, rot: -0.6 }], plotOutlines(id), { width: 1800, height: 1300 });
     await scene.shot(`review-${id}`, [
-      { x: 0, z: 0.4, distance: d, rect: [0, 0, 0.5, 0.5] },
+      { x: 0, z: 0.2, y: 0.8, distance: d * 1.06, rect: [0, 0, 0.5, 0.5] },
       { x: 0, z: 0, y: 1, distance: d, yaw: 0.65, pitch: 0.5, rect: [0.5, 0, 0.5, 0.5] },
       { x: 0, z: 0, y: 1, distance: d, yaw: -0.75, pitch: 0.3, rect: [0, 0.5, 0.5, 0.5] },
       { x: 0, z: 0, distance: d * 1.05, pitch: 1.565, rect: [0.5, 0.5, 0.5, 0.5] },
     ]);
     await scene.close();
   }
+}
+if (only[0] === 'review') {
+  await reviews(only.length > 1 ? only.slice(1) : Object.keys(plotOf));
   await browser.close();
   rmSync(previewPath, { force: true });
   process.exit(0);
@@ -332,13 +338,15 @@ if (want('scene') || want('village') || only.length === 0) {
   ];
   const items = [...buildings];
   for (const [x, z, rot] of [[-6.2, 0.2, 1.2], [1.6, 0.1, -0.4], [2.2, 8.6, 2.6], [-5.8, 8.2, 0.5], [10.2, 0.6, 0.3], [9.4, 9.2, -2.2]]) items.push({ id: 'villager', x, z, rot });
-  items.push({ id: 'spearman', x: -12.6, z: 0.4, rot: 0.2 }, { id: 'spearman', x: -10.9, z: 0.1, rot: -0.3 });
+  items.push({ id: 'spearman', x: -15.6, z: 0.5, rot: 0.2 }, { id: 'spearman', x: -14.2, z: 0.2, rot: -0.3 });
   items.push({ id: 'conifer', x: -17, z: 9 }, { id: 'oak', x: 17.5, z: -9.5 });
   const scene = await openScene(items, buildings.map(({ id, x, z }) => plotOutlines(id, x, z)[0]));
   await scene.shot('scene-village', [{ x: 0.5, z: -0.6, distance: 46 }]);
   await scene.shot('scene-village-far', [{ x: 0.5, z: -0.6, distance: 110 }]);
   await scene.close();
 }
+
+if (only.length === 0) await reviews(Object.keys(plotOf));
 
 await browser.close();
 rmSync(previewPath, { force: true });

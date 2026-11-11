@@ -69,20 +69,20 @@
     "id": "house",
     "group": "buildings",
     "label": "Peasant house",
-    "note": "Small house of c. 900: timber posts, wattle-and-daub, thatch, a fenced toft with a garden bed. No chimney. 3 by 3 tile plot.",
+    "note": "Timber posts, wattle-and-daub, thatch, c. 900. No chimney: smoke leaves by a louvre on the ridge. 3 by 3 tile plot.",
     "file": "models/house.glb",
-    "triangles": 888,
-    "bytes": 71828,
+    "triangles": 938,
+    "bytes": 75700,
     "bounds": {
       "min": [
         -2.78,
-        0,
+        -0.005,
         -2.8
       ],
       "max": [
         2.78,
-        4.445,
-        2.8
+        4.46,
+        2.785
       ]
     },
     "plot": 3,
@@ -129,10 +129,10 @@
     "id": "barracks",
     "group": "buildings",
     "label": "Barracks",
-    "note": "Plain longhouse under hipped thatch, with a drill yard: practice posts, a straw man, spears and shields. Trains spearmen on a 5 by 5 tile plot.",
+    "note": "Plain longhouse under hipped thatch, with a drill yard of practice posts, spears and shields. Trains spearmen on a 5 by 5 tile plot.",
     "file": "models/barracks.glb",
-    "triangles": 1096,
-    "bytes": 85828,
+    "triangles": 1308,
+    "bytes": 100084,
     "bounds": {
       "min": [
         -4.58,
@@ -141,8 +141,8 @@
       ],
       "max": [
         4.58,
-        4.424,
-        4.59
+        4.739,
+        4.632
       ]
     },
     "plot": 5,
@@ -159,7 +159,7 @@
     "id": "lumber-camp",
     "group": "buildings",
     "label": "Lumber camp",
-    "note": "Open shed under riven boards, with felled trunks, cordwood and a sawhorse. Where wood is brought. 3 by 3 tile plot.",
+    "note": "Open shed roofed with riven boards, felled trunks stacked beside it. Woodcutters bring timber here. 3 by 3 tile plot.",
     "file": "models/lumber-camp.glb",
     "triangles": 881,
     "bytes": 68092,
@@ -189,15 +189,15 @@
     "id": "mill",
     "group": "buildings",
     "label": "Mill",
-    "note": "Granary raised on posts with a hand quern, sacks and baskets: there is no windmill before the late 12th century. 3 by 3 tile plot.",
+    "note": "Granary raised on posts, with a hand quern: no windmill turns in Europe before the late 12th century. Food is brought here. 3 by 3 tile plot.",
     "file": "models/mill.glb",
     "triangles": 832,
-    "bytes": 66324,
+    "bytes": 66312,
     "bounds": {
       "min": [
         -2.7,
         -0.041,
-        -2.8
+        -2.75
       ],
       "max": [
         2.7,
@@ -219,10 +219,10 @@
     "id": "mining-camp",
     "group": "buildings",
     "label": "Mining camp",
-    "note": "Pole lean-to roofed with bark slabs, with cut blocks, ore baskets, a handcart and a pick. Where stone and gold are brought. 3 by 3 tile plot.",
+    "note": "Pole lean-to over the ore baskets, with cut blocks, a handcart and a pick. Stone and gold are brought here. 3 by 3 tile plot.",
     "file": "models/mining-camp.glb",
-    "triangles": 792,
-    "bytes": 63616,
+    "triangles": 804,
+    "bytes": 64984,
     "bounds": {
       "min": [
         -2.78,

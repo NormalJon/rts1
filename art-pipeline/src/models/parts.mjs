@@ -163,7 +163,7 @@ export function stakeFence(m, a, b, { first = true, last = true, spacing = 1.1, 
     m.at(T(x, 0, z), () => m.cyl(0.055, 0.04, height, 4, { bottom: false, phase: i }));
   }
   m.color(C.timberLight, 0.08);
-  for (const y of rails) m.beam([a[0], y, a[1]], [b[0], y, b[1]], 0.16, 0.05, { top: false, bottom: false });
+  for (const y of rails) m.beam([a[0], y, a[1]], [b[0], y, b[1]], 0.16, 0.05);
 }
 
 /** A flat n-sided disc at height y, facing up or down: the cut end of a log, the lid of a tub. */
@@ -177,16 +177,17 @@ export function disc(m, r, y, sides, { phase = 0, up = true } = {}) {
 
 /**
  * Logs stacked in rows from the ground up, lying along +Z from z = 0, bark outside and the
- * cut ends pale. `rows` is the number of logs in each row; `ragged` staggers the ends.
+ * cut ends pale. `rows` is the number of logs in each row; `ragged` staggers the ends and
+ * `barks` are the colours the logs take in turn.
  */
-export function logPile(m, rows, { r = 0.14, length = 0.62, sides = 5, back = true, ragged = 0 } = {}) {
+export function logPile(m, rows, { r = 0.14, length = 0.62, sides = 5, back = true, ragged = 0, barks = [C.bark] } = {}) {
   rows.forEach((n, row) => {
     for (let i = 0; i < n; i++) {
       const k = Math.sin((i * 7 + row * 3 + 1) * 12.9898) * 43758.5453;
       const f = k - Math.floor(k);
       const x = (i - (n - 1) / 2) * r * 2.05;
       m.at(T(x, r + row * r * 1.75, (f - 0.5) * ragged), RX(Math.PI / 2), RY(i * 1.3 + row), () => {
-        m.color(C.bark, 0.08).cyl(r, r, length, sides, { top: false, bottom: false });
+        m.color(barks[(i + row * 2) % barks.length], 0.08).cyl(r, r, length, sides, { top: false, bottom: false });
         m.color(C.timberLight, 0.06);
         disc(m, r, length, sides);
         if (back) disc(m, r, 0, sides, { up: false });

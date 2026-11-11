@@ -10,9 +10,9 @@ import { pennant, hippedThatch, groundPatch, basket, disc } from './parts.mjs';
 
 /** A filled sack standing on end, tied at the neck. */
 function sack(m, k = 1) {
-  m.color(C.sack, 0.08).frustum(0.4 * k, 0.32 * k, 0.48 * k, 0.4 * k, 0.4 * k, { top: false, bottom: false });
-  m.at(T(0, 0.4 * k, 0), () => m.frustum(0.48 * k, 0.4 * k, 0.17 * k, 0.15 * k, 0.24 * k, { top: false, bottom: false }));
-  m.color(C.linen, 0.06).at(T(0, 0.63 * k, 0), () => m.frustum(0.15 * k, 0.13 * k, 0.25 * k, 0.2 * k, 0.1 * k, { bottom: false }));
+  m.color(C.sack, 0.08).frustum(0.5 * k, 0.4 * k, 0.46 * k, 0.36 * k, 0.5 * k, { top: false, bottom: false });
+  m.at(T(0, 0.5 * k, 0), () => m.frustum(0.46 * k, 0.36 * k, 0.12 * k, 0.1 * k, 0.1 * k, { top: false, bottom: false }));
+  m.at(T(0, 0.6 * k, 0), () => m.frustum(0.1 * k, 0.09 * k, 0.2 * k, 0.15 * k, 0.08 * k, { bottom: false }));
 }
 
 /** A sheaf of corn: bound stalks spreading to the ears. */
@@ -27,7 +27,7 @@ export function build() {
   const hw = W / 2, hd = D / 2;
   const zc = -0.9, zf = zc + hd, zb = zc - hd;
   const floorY = 0.88, wallH = 1.55, wallTop = floorY + wallH;
-  const over = 0.5, slope = 1.0;
+  const over = 0.45, slope = 1.0;
   const ex = hw + over, ez = hd + over;
   const rise = ez * slope;
   const eaveY = wallTop + 0.12 - over * slope;
@@ -65,15 +65,15 @@ export function build() {
     for (const z of [zf - 0.06, zb + 0.06]) m.at(T(sx * (hw - 0.06), floorY, z), () => m.box(0.2, wallH, 0.2, { top: false, bottom: false }));
   }
 
-  // Door of three planks in a frame, opening onto a landing.
+  // A low door of three planks in a frame, opening onto a landing.
   m.at(T(0, floorY, zf), () => {
     for (let i = 0; i < 3; i++) {
       const x0 = -0.39 + i * 0.26, x1 = x0 + 0.26;
-      m.color(i % 2 ? C.timberLight : C.plank, 0.07).poly([[x0, 0.02, 0.04], [x1, 0.02, 0.04], [x1, 1.3, 0.04], [x0, 1.3, 0.04]]);
+      m.color(i % 2 ? C.timberLight : C.plank, 0.07).poly([[x0, 0.02, 0.04], [x1, 0.02, 0.04], [x1, 0.97, 0.04], [x0, 0.97, 0.04]]);
     }
     m.color(C.timber, 0.05);
-    for (const sx of [-1, 1]) m.at(T(sx * 0.46, 0, 0.03), () => m.box(0.14, 1.36, 0.16, { bottom: false }));
-    m.at(T(0, 1.29, 0.03), () => m.box(1.2, 0.14, 0.18));
+    for (const sx of [-1, 1]) m.at(T(sx * 0.46, 0, 0.03), () => m.box(0.14, 1.02, 0.16, { bottom: false }));
+    m.at(T(0, 0.95, 0.03), () => m.box(1.2, 0.13, 0.18));
   });
   const landing = zf + 0.78;
   m.color(C.plank, 0.07).at(T(0, floorY - 0.06, zf + 0.39), () => m.box(1.7, 0.06, 0.78));
@@ -84,18 +84,18 @@ export function build() {
   m.color(C.timberLight, 0.06).beam([0, floorY - 0.03, landing - 0.04], [0, 0.0, foot], 0.72, 0.06);
   m.color(C.timber, 0.06);
   for (const k of [0.2, 0.4, 0.6, 0.8]) {
-    m.at(T(0, (floorY - 0.03) * (1 - k) + 0.02, landing - 0.04 + (foot - landing + 0.04) * k), () => m.box(0.72, 0.05, 0.07, { bottom: false }));
+    m.at(T(0, (floorY - 0.03) * (1 - k) + 0.02, landing - 0.04 + (foot - landing + 0.04) * k), () => m.box(0.78, 0.05, 0.07, { bottom: false }));
   }
 
   // Hipped thatch in three courses, coming almost to a point.
   let top;
   m.at(T(0, 0, zc), () => {
-    top = hippedThatch(m, { ex, ez, rise, eaveY }, { step: 0.07, courses: [[0, 0.38, C.thatch], [0.34, 0.7, C.thatchMid], [0.66, 1, C.thatch]] });
+    top = hippedThatch(m, { ex, ez, rise, eaveY }, { step: 0.07, butt: 0.18, courses: [[0, 0.38, C.thatch], [0.34, 0.7, C.thatchMid], [0.66, 1, C.thatch]] });
   });
 
   // Sacks waiting to go up: three standing, one lying across them, two on the landing.
-  for (const [x, z, turn, k] of [[1.22, 1.62, 0.3, 1], [1.74, 1.5, -0.4, 1.08], [1.5, 2.08, 1.1, 0.95]]) m.at(T(x, 0, z), RY(turn), () => sack(m, k));
-  m.at(T(2.06, 0.2, 2.0), RY(0.5), RX(Math.PI / 2 - 0.12), () => sack(m, 1));
+  for (const [x, z, turn, k] of [[1.27, 1.62, 0.3, 0.95], [1.73, 1.52, -0.4, 1], [1.46, 2.16, 1.1, 0.95]]) m.at(T(x, 0, z), RY(turn), () => sack(m, k));
+  m.at(T(2.3, 0.2, 1.72), RY(0.15), RX(Math.PI / 2 - 0.12), () => sack(m, 1));
   for (const [x, turn] of [[-0.62, 0.2], [0.63, -0.3]]) m.at(T(x, floorY, zf + 0.5), RY(turn), () => sack(m, 0.9));
 
   // Rotary quern on a block: the upper stone is turned by its handle on the lower.
@@ -112,14 +112,14 @@ export function build() {
     for (let i = 0; i < 3; i++) m.at(RY((i * Math.PI * 2) / 3 + 0.4), T(0.2, 0, 0), RZ(0.3), () => sheaf(m));
   });
 
-  // The owner's colours: a cloth thrown over the sacks and a pennant on the roof.
-  m.team().at(T(1.52, 0.7, 1.58), RY(0.25), () => m.frustum(1.0, 0.62, 0.72, 0.4, 0.07, { bottom: false }));
+  // The owner's colours: a cloth thrown over two of the sacks and a pennant on the roof.
+  m.team().at(T(1.5, 0.3, 1.57), RY(-0.1), () => m.frustum(1.36, 0.94, 0.98, 0.6, 0.47, { bottom: false }));
   pennant(m, [0, top - 0.1, zc], { height: 1.15, length: 0.95, drop: 0.44, yaw: -0.3, pole: 0.04 });
 
   return {
     id: 'mill',
     label: 'Mill',
-    note: 'Granary raised on posts with a hand quern, sacks and baskets: there is no windmill before the late 12th century. 3 by 3 tile plot.',
+    note: 'Granary raised on posts, with a hand quern: no windmill turns in Europe before the late 12th century. Food is brought here. 3 by 3 tile plot.',
     yaw: 0.5,
     plot: 3,
     roots: [{ name: 'mill', mesh: m.toMesh('mill') }],

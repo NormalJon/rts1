@@ -16,8 +16,8 @@ function stone(m, w, h, d, tone = C.stone) {
 export function build() {
   const m = new MeshBuilder(43);
   const xl = -2.5, xr = 1.0; // end posts of the lean-to
-  const zB = -2.5, zF = -0.72; // back and front rows of posts
-  const hB = 1.3, hF = 2.2;
+  const zB = -2.5, zF = -0.35; // back and front rows of posts
+  const hB = 1.3, hF = 2.35;
   const slope = (hF - hB) / (zF - zB);
   const roofY = (z, off = 0) => hB + 0.2 + (z - zB) * slope + off; // top of the roofing above z
   const rz0 = zB - 0.26, rz1 = zF + 0.34;
@@ -65,7 +65,7 @@ export function build() {
   for (let i = 0; i < n; i++) {
     const x0 = rx0 + (i * (rx1 - rx0)) / n, x1 = rx0 + ((i + 1) * (rx1 - rx0)) / n;
     const za = rz0 - ((i * 5) % 3) * 0.03, zb = rz1 + ((i * 4) % 3) * 0.035;
-    m.color(i % 2 ? C.shingle : C.oreLight, 0.09).poly([[x0, roofY(zb), zb], [x1, roofY(zb), zb], [x1, roofY(za), za], [x0, roofY(za), za]]);
+    m.color(i % 2 ? C.shingle : C.barkSlab, 0.09).poly([[x0, roofY(zb), zb], [x1, roofY(zb), zb], [x1, roofY(za), za], [x0, roofY(za), za]]);
     // The front edge of each slab, which is what shows of its thickness.
     m.poly([[x0, roofY(zb, -t), zb], [x1, roofY(zb, -t), zb], [x1, roofY(zb), zb], [x0, roofY(zb), zb]]);
   }
@@ -76,22 +76,20 @@ export function build() {
   // Poles and stones laid on the slabs to hold them down.
   m.color(C.bark, 0.07);
   for (const z of [rz0 + 0.5, rz1 - 0.55]) m.rod([rx0 - 0.04, roofY(z, 0.05), z], [rx1 + 0.04, roofY(z, 0.05), z], 0.055, 5);
-  for (const [x, z, w, turn] of [[-2.0, -1.55, 0.34, 0.4], [-0.5, -1.2, 0.3, 1.0], [0.75, -1.75, 0.36, 0.2]]) {
+  for (const [x, z, w, turn] of [[-2.0, -1.5, 0.34, 0.4], [-0.5, -0.85, 0.3, 1.0], [0.75, -1.7, 0.36, 0.2]]) {
     m.at(T(x, roofY(z, -0.02), z), RX(-Math.atan(slope)), RY(turn), () => stone(m, w, 0.2, w * 0.8, C.rockDark));
   }
 
   // Under the roof: baskets of ore, the middle one of gold-bearing rock.
-  const ore = (x, z, r, rich) => m.at(T(x, 0, z), () => {
-    basket(m, { r, h: 0.4, fill: C.ore, heap: 0.14 });
+  const ore = (r, h, rich) => {
+    basket(m, { r, h, fill: rich ? C.oreLight : C.ore, heap: 0.14 });
     if (!rich) return;
     m.color(C.goldLight, 0.08);
-    for (const [dx, dz, turn] of [[0.08, 0.06, 0.2], [-0.1, 0.02, 1.2], [0.0, -0.11, 2.2]]) {
-      m.at(T(dx, 0.42, dz), RY(turn), () => m.cyl(0.08, 0, 0.17, 4, { bottom: false }));
+    for (const [dx, dz, turn] of [[0.09, 0.06, 0.2], [-0.1, 0.03, 1.2], [0.0, -0.11, 2.2]]) {
+      m.at(T(dx * (r / 0.3), h + 0.01, dz * (r / 0.3)), RY(turn), () => m.cyl(0.09, 0, 0.19, 4, { bottom: false }));
     }
-  });
-  ore(-2.0, -1.2, 0.3, false);
-  ore(-1.36, -1.42, 0.3, true);
-  ore(-0.68, -1.15, 0.28, false);
+  };
+  for (const [x, z, r, rich] of [[-2.0, -0.95, 0.3, false], [-1.34, -1.25, 0.3, true], [-0.62, -0.9, 0.28, false]]) m.at(T(x, 0, z), () => ore(r, 0.4, rich));
 
   // Cut blocks stacked three courses high beside the lean-to, and two more set down in front.
   const sx = 2.08;
@@ -132,7 +130,7 @@ export function build() {
       m.color(C.timber, 0.05).at(T(s * 0.655, 0.42, -0.12), RZ(-s * Math.PI / 2), () => m.cyl(0.09, 0.07, 0.05, 5, { bottom: false }));
     }
     m.at(T(0.02, bedY + 0.07, -0.22), RY(0.1), () => stone(m, 0.62, 0.36, 0.7, C.stoneLight));
-    m.at(T(-0.05, bedY + 0.07, 0.43), () => basket(m, { r: 0.24, h: 0.3, fill: C.ore, heap: 0.1 }));
+    m.at(T(-0.05, bedY + 0.07, 0.43), () => ore(0.24, 0.3, true));
   });
 
   // Spoil broken off in the dressing, heaped at the corner of the yard.
@@ -147,7 +145,7 @@ export function build() {
   return {
     id: 'mining-camp',
     label: 'Mining camp',
-    note: 'Pole lean-to roofed with bark slabs, with cut blocks, ore baskets, a handcart and a pick. Where stone and gold are brought. 3 by 3 tile plot.',
+    note: 'Pole lean-to over the ore baskets, with cut blocks, a handcart and a pick. Stone and gold are brought here. 3 by 3 tile plot.',
     yaw: 0.5,
     plot: 3,
     roots: [{ name: 'mining-camp', mesh: m.toMesh('mining-camp') }],
