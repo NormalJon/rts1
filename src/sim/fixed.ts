@@ -35,6 +35,12 @@ export function fromInt(n: number): Fixed {
   return (n * ONE) | 0;
 }
 
+/** The fraction n/d as fixed-point, for writing constants such as 3/4 without floats. */
+export function fromRatio(n: number, d: number): Fixed {
+  if (d === 0) throw new RangeError('fromRatio division by zero');
+  return Math.floor((n * ONE) / d) | 0;
+}
+
 /** Whole part, rounded down. */
 export function floorToInt(a: Fixed): number {
   return a >> FRAC_BITS;

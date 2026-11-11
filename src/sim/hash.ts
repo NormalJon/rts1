@@ -7,7 +7,7 @@
  * replays and saved games reproduce a match exactly.
  */
 
-import type { World } from './world';
+import type { RouteRequest, World } from './world';
 
 /** One round of MurmurHash3 (32-bit). */
 function mix(h: number, value: number): number {
@@ -36,8 +36,19 @@ export function hashWorld(world: World): number {
     h = mix(h, value);
     words++;
   };
+  const addRequest = (request: RouteRequest): void => {
+    if (request.kind === 'path') {
+      add(1);
+      add(request.slot);
+      add(request.seq);
+    } else {
+      add(2);
+      add(request.group);
+    }
+  };
 
   add(world.tick);
+  add(world.map.checksum);
   for (const word of world.rng.getState()) add(word);
   add(world.highWater);
   add(world.freeSlots.length);
@@ -49,7 +60,38 @@ export function hashWorld(world: World): number {
     add(world.generation[slot]!);
     // A dead slot's leftover values affect nothing, so they are not state.
     if (world.alive[slot] === 0) continue;
-    for (const { data } of columns) add(data[slot]!);
+    for (const { data, stride } of columns) {
+      for (let k = slot * stride; k < (slot + 1) * stride; k++) add(data[k]!);
+    }
+    const path = world.paths[slot];
+    add(path === undefined ? -1 : path.length);
+    if (path !== undefined) for (let k = 0; k < path.length; k++) add(path[k]!);
+  }
+
+  // Groups are created with rising ids and kept in that order.
+  add(world.nextGroupId);
+  add(world.groups.size);
+  for (const group of world.groups.values()) {
+    add(group.id);
+    add(group.goalTile);
+    add(group.faceX);
+    add(group.faceY);
+    add(group.refs);
+    add(group.status);
+    add(group.fieldChecksum);
+  }
+
+  add(world.routeQueue.length);
+  for (const request of world.routeQueue) addRequest(request);
+  const active = world.activeSearch;
+  add(active === null ? 0 : 1);
+  if (active !== null) {
+    addRequest(active.request);
+    add(active.start);
+    add(active.goal);
+    add(active.targets.length);
+    for (const tile of active.targets) add(tile);
+    add(active.search.expansions);
   }
   return finish(h, words);
 }

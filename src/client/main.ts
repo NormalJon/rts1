@@ -14,11 +14,9 @@ import { defaultConfig, entityIndex } from '../sim/world';
 import { LocalSession } from '../session/localSession';
 import { FixedStepper } from '../session/stepper';
 
-const MAP_WIDTH = 64;
-const MAP_HEIGHT = 40;
+const MAP_WIDTH = 24;
+const MAP_HEIGHT = 15;
 const UNIT_COUNT = 36;
-const UNIT_SPEED = 7; // tiles per second
-const UNIT_RADIUS = 0.3; // tiles
 const MARKER_MS = 700;
 
 interface Lab {
@@ -76,6 +74,7 @@ function startLab(rate: number): Lab {
       playerCount: 1,
       mapWidth: MAP_WIDTH,
       mapHeight: MAP_HEIGHT,
+      map: { kind: 'flat' },
       maxEntities: 256,
     }),
   );
@@ -86,7 +85,7 @@ function startLab(rate: number): Lab {
     x: centreX,
     y: centreY,
     count: UNIT_COUNT,
-    speed: fromInt(UNIT_SPEED),
+    unitType: 0,
   });
   session.step();
   // The company arrives scattered and forms up, so the page opens in motion.
@@ -160,13 +159,13 @@ function draw(alpha: number, now: number): void {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.strokeStyle = colours.line;
-  ctx.lineWidth = Math.max(1, tile * 0.05);
+  ctx.lineWidth = Math.max(1, tile * 0.02);
   ctx.beginPath();
-  for (let x = 4; x < MAP_WIDTH; x += 4) {
+  for (let x = 1; x < MAP_WIDTH; x += 1) {
     ctx.moveTo(x * tile, 0);
     ctx.lineTo(x * tile, canvas.height);
   }
-  for (let y = 4; y < MAP_HEIGHT; y += 4) {
+  for (let y = 1; y < MAP_HEIGHT; y += 1) {
     ctx.moveTo(0, y * tile);
     ctx.lineTo(canvas.width, y * tile);
   }
@@ -177,9 +176,9 @@ function draw(alpha: number, now: number): void {
     const age = (now - m.bornAt) / MARKER_MS;
     ctx.globalAlpha = 1 - age;
     ctx.strokeStyle = colours.marker;
-    ctx.lineWidth = Math.max(1.5, tile * 0.12);
+    ctx.lineWidth = Math.max(1.5, tile * 0.06);
     ctx.beginPath();
-    ctx.arc(m.x * tile, m.y * tile, tile * (0.5 + age * 1.2), 0, Math.PI * 2);
+    ctx.arc(m.x * tile, m.y * tile, tile * (0.3 + age * 0.6), 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
@@ -187,13 +186,13 @@ function draw(alpha: number, now: number): void {
   const { world } = lab.session;
   ctx.fillStyle = colours.unit;
   ctx.strokeStyle = colours.unitEdge;
-  ctx.lineWidth = Math.max(1, tile * 0.06);
+  ctx.lineWidth = Math.max(1, tile * 0.03);
   for (const id of world.livingEntities(0)) {
     const slot = entityIndex(id);
     const x = lab.prevX[slot]! + (toFloat(world.posX[slot]!) - lab.prevX[slot]!) * alpha;
     const y = lab.prevY[slot]! + (toFloat(world.posY[slot]!) - lab.prevY[slot]!) * alpha;
     ctx.beginPath();
-    ctx.arc(x * tile, y * tile, tile * UNIT_RADIUS, 0, Math.PI * 2);
+    ctx.arc(x * tile, y * tile, tile * toFloat(world.radius[slot]!), 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -290,7 +289,7 @@ canvas.addEventListener('pointerdown', (event) => {
 });
 
 byId('btn-random').addEventListener('click', () => {
-  order(3 + Math.random() * (MAP_WIDTH - 6), 3 + Math.random() * (MAP_HEIGHT - 6));
+  order(2 + Math.random() * (MAP_WIDTH - 4), 2 + Math.random() * (MAP_HEIGHT - 4));
 });
 
 byId('btn-replay').addEventListener('click', () => {

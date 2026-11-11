@@ -8,8 +8,13 @@
  */
 
 import { CommandQueue } from './commands';
+import { ONE, type Fixed } from './fixed';
+import type { GameMap } from './map';
+import { buildMap, type MapSpec } from './mapgen';
 import { Rng } from './rng';
-import type { Fixed } from './fixed';
+import { SearchScratch, type Search } from './search';
+import { perSecondToPerTick } from './units';
+import { UNIT_TYPES } from './unitTypes';
 
 export interface SimConfig {
   /** Simulation steps per second. Fixed for the whole match. */
@@ -19,7 +24,13 @@ export interface SimConfig {
   /** Map size in tiles. */
   readonly mapWidth: number;
   readonly mapHeight: number;
+  readonly map: MapSpec;
   readonly maxEntities: number;
+  /**
+   * How many tiles pathfinding may examine per tick. Searches that need more
+   * carry on next tick, which keeps a burst of orders from stalling the game.
+   */
+  readonly pathBudget: number;
 }
 
 export const DEFAULT_TICK_RATE = 30;
@@ -31,7 +42,9 @@ export function defaultConfig(overrides: Partial<SimConfig> = {}): SimConfig {
     playerCount: 2,
     mapWidth: 64,
     mapHeight: 64,
+    map: { kind: 'flat' },
     maxEntities: 8192,
+    pathBudget: 30000,
     ...overrides,
   };
 }
@@ -57,10 +70,67 @@ export function entityGeneration(id: EntityId): number {
   return id >>> INDEX_BITS;
 }
 
+/** What a unit is doing about getting somewhere. */
+export const MoveState = {
+  /** Standing at its post. It drifts back if pushed off it. */
+  Idle: 0,
+  /** Has an order and is waiting for its route to be worked out. */
+  Awaiting: 1,
+  /** Following its own list of waypoints. */
+  Path: 2,
+  /** Following its group's flow field. */
+  Field: 3,
+  /** Walking straight at its destination, which is in plain sight. */
+  Direct: 4,
+} as const;
+
+/** Orders a unit can have waiting behind its current one. */
+export const ORDER_QUEUE_LENGTH = 8;
+
+export const GroupStatus = { New: 0, Pending: 1, Ready: 2 } as const;
+
+/**
+ * A move order shared by several units. They head for the same place, so they
+ * share one flow field and line up facing the same way when they arrive.
+ */
+export interface MoveGroup {
+  readonly id: number;
+  readonly goalTile: number;
+  /** The way the formation faces on arrival, as a unit vector. */
+  readonly faceX: Fixed;
+  readonly faceY: Fixed;
+  /** Units for which this is the current or a queued order. */
+  refs: number;
+  status: number;
+  field: Uint8Array | null;
+  fieldChecksum: number;
+}
+
+export type RouteRequest =
+  | { readonly kind: 'path'; readonly slot: number; readonly seq: number }
+  | { readonly kind: 'field'; readonly group: number };
+
+/** A route search that is part-way through, with what is needed to redo it. */
+export interface ActiveSearch {
+  readonly request: RouteRequest;
+  readonly start: number;
+  readonly goal: number;
+  readonly targets: readonly number[];
+  readonly search: Search;
+}
+
 export type Column = Int32Array | Uint16Array | Uint8Array;
+
+export interface ColumnInfo {
+  readonly name: string;
+  readonly data: Column;
+  /** Values per entity. */
+  readonly stride: number;
+}
 
 export class World {
   readonly config: SimConfig;
+  readonly map: GameMap;
   /** Ticks simulated so far, which is also the number of the next tick to run. */
   tick = 0;
   readonly rng: Rng;
@@ -71,18 +141,62 @@ export class World {
   /** Slots of dead entities, reused last-freed-first. */
   readonly freeSlots: number[] = [];
 
-  private readonly columnList: { readonly name: string; readonly data: Column }[] = [];
+  private readonly columnList: ColumnInfo[] = [];
 
   readonly alive: Uint8Array;
   readonly generation: Uint16Array;
   readonly owner: Uint8Array;
+  readonly unitType: Uint8Array;
   readonly posX: Int32Array;
   readonly posY: Int32Array;
-  readonly targetX: Int32Array;
-  readonly targetY: Int32Array;
+  /** Facing, as a unit vector. */
+  readonly dirX: Int32Array;
+  readonly dirY: Int32Array;
   /** Distance covered per tick. */
   readonly speed: Int32Array;
-  readonly moving: Uint8Array;
+  readonly radius: Int32Array;
+
+  readonly moveState: Uint8Array;
+  /** Where the unit is trying to be: its destination, or its post when idle. */
+  readonly goalX: Int32Array;
+  readonly goalY: Int32Array;
+  /** The point it is walking toward right now. */
+  readonly steerX: Int32Array;
+  readonly steerY: Int32Array;
+  /** The next waypoint, when following a path. */
+  readonly pathIndex: Int32Array;
+  /** The shared order it is carrying out, or 0. */
+  readonly group: Int32Array;
+  /** Goes up with every new order, so a route worked out for an old one is recognised and dropped. */
+  readonly orderSeq: Int32Array;
+  /** Ticks in a row without getting anywhere, and re-routes tried since. */
+  readonly stuck: Int32Array;
+  readonly retries: Uint8Array;
+  /** The nearest it has been to its destination on the final approach. */
+  readonly closest: Int32Array;
+
+  readonly queueLength: Uint8Array;
+  readonly queueGroup: Int32Array;
+  readonly queueX: Int32Array;
+  readonly queueY: Int32Array;
+
+  /** Waypoints (x, y pairs) for units following their own path. */
+  readonly paths: (Int32Array | undefined)[] = [];
+  readonly groups = new Map<number, MoveGroup>();
+  nextGroupId = 1;
+  /** Route searches waiting their turn, oldest first. */
+  readonly routeQueue: RouteRequest[] = [];
+  activeSearch: ActiveSearch | null = null;
+
+  /** Working memory. Rebuilt whenever needed; never part of the saved state. */
+  readonly searchScratch: SearchScratch;
+  readonly scratchX: Int32Array;
+  readonly scratchY: Int32Array;
+  readonly scratchPushX: Int32Array;
+  readonly scratchPushY: Int32Array;
+  readonly scratchFlags: Uint8Array;
+  readonly cellStart: Int32Array;
+  readonly cellItems: Int32Array;
 
   constructor(config: SimConfig) {
     if (!Number.isInteger(config.tickRate) || config.tickRate < 1 || config.tickRate > 120) {
@@ -94,33 +208,73 @@ export class World {
     if (config.playerCount < 1 || config.playerCount > 8) {
       throw new RangeError('playerCount must be from 1 to 8');
     }
+    if (config.mapWidth < 1 || config.mapHeight < 1 || config.mapWidth > 1024 || config.mapHeight > 1024) {
+      throw new RangeError('map size must be from 1 to 1024 tiles each way');
+    }
+    if (!Number.isInteger(config.pathBudget) || config.pathBudget < 1) {
+      throw new RangeError('pathBudget must be a positive whole number');
+    }
     this.config = config;
     this.rng = new Rng(config.seed);
+    this.map = buildMap(config.mapWidth, config.mapHeight, config.seed, config.map);
 
     const n = config.maxEntities;
     this.alive = this.column('alive', new Uint8Array(n));
     this.generation = this.column('generation', new Uint16Array(n));
     this.owner = this.column('owner', new Uint8Array(n));
+    this.unitType = this.column('unitType', new Uint8Array(n));
     this.posX = this.column('posX', new Int32Array(n));
     this.posY = this.column('posY', new Int32Array(n));
-    this.targetX = this.column('targetX', new Int32Array(n));
-    this.targetY = this.column('targetY', new Int32Array(n));
+    this.dirX = this.column('dirX', new Int32Array(n));
+    this.dirY = this.column('dirY', new Int32Array(n));
     this.speed = this.column('speed', new Int32Array(n));
-    this.moving = this.column('moving', new Uint8Array(n));
+    this.radius = this.column('radius', new Int32Array(n));
+    this.moveState = this.column('moveState', new Uint8Array(n));
+    this.goalX = this.column('goalX', new Int32Array(n));
+    this.goalY = this.column('goalY', new Int32Array(n));
+    this.steerX = this.column('steerX', new Int32Array(n));
+    this.steerY = this.column('steerY', new Int32Array(n));
+    this.pathIndex = this.column('pathIndex', new Int32Array(n));
+    this.group = this.column('group', new Int32Array(n));
+    this.orderSeq = this.column('orderSeq', new Int32Array(n));
+    this.stuck = this.column('stuck', new Int32Array(n));
+    this.retries = this.column('retries', new Uint8Array(n));
+    this.closest = this.column('closest', new Int32Array(n));
+    this.queueLength = this.column('queueLength', new Uint8Array(n));
+    const q = ORDER_QUEUE_LENGTH;
+    this.queueGroup = this.column('queueGroup', new Int32Array(n * q), q);
+    this.queueX = this.column('queueX', new Int32Array(n * q), q);
+    this.queueY = this.column('queueY', new Int32Array(n * q), q);
+
+    this.searchScratch = new SearchScratch(this.map.tileCount);
+    this.scratchX = new Int32Array(n);
+    this.scratchY = new Int32Array(n);
+    this.scratchPushX = new Int32Array(n);
+    this.scratchPushY = new Int32Array(n);
+    this.scratchFlags = new Uint8Array(n);
+    // The neighbour grid uses cells two tiles across.
+    const cells = ((this.map.width + 1) >> 1) * ((this.map.height + 1) >> 1);
+    this.cellStart = new Int32Array(cells + 1);
+    this.cellItems = new Int32Array(n);
   }
 
-  private column<T extends Column>(name: string, data: T): T {
-    this.columnList.push({ name, data });
+  private column<T extends Column>(name: string, data: T, stride = 1): T {
+    this.columnList.push({ name, data, stride });
     return data;
   }
 
   /** Every entity property, in a fixed order. */
-  get columns(): readonly { readonly name: string; readonly data: Column }[] {
+  get columns(): readonly ColumnInfo[] {
     return this.columnList;
   }
 
-  /** Creates an entity and returns its handle, or NO_ENTITY if the world is full. */
-  spawn(owner: number, x: Fixed, y: Fixed, speedPerTick: Fixed): EntityId {
+  /**
+   * Creates a unit and returns its handle, or NO_ENTITY if the world is full.
+   * The position must be on passable ground.
+   */
+  spawn(owner: number, unitType: number, x: Fixed, y: Fixed): EntityId {
+    const type = UNIT_TYPES[unitType];
+    if (type === undefined) throw new RangeError(`no such unit type: ${unitType}`);
     let slot = this.freeSlots.pop();
     if (slot === undefined) {
       if (this.highWater >= this.config.maxEntities) return NO_ENTITY;
@@ -128,21 +282,29 @@ export class World {
     }
     const generation = this.generation[slot]!;
     // Clear whatever the slot's previous occupant left behind.
-    for (const { data } of this.columnList) data[slot] = 0;
+    for (const { data, stride } of this.columnList) data.fill(0, slot * stride, (slot + 1) * stride);
+    this.paths[slot] = undefined;
     this.generation[slot] = generation;
     this.alive[slot] = 1;
     this.owner[slot] = owner;
+    this.unitType[slot] = unitType;
     this.posX[slot] = x;
     this.posY[slot] = y;
-    this.targetX[slot] = x;
-    this.targetY[slot] = y;
-    this.speed[slot] = speedPerTick;
+    this.goalX[slot] = x;
+    this.goalY[slot] = y;
+    this.steerX[slot] = x;
+    this.steerY[slot] = y;
+    this.dirX[slot] = 0;
+    this.dirY[slot] = ONE;
+    this.speed[slot] = perSecondToPerTick(type.speed, this.config.tickRate);
+    this.radius[slot] = type.radius;
     return this.idAt(slot);
   }
 
   destroy(id: EntityId): void {
     if (!this.isAlive(id)) return;
     const slot = entityIndex(id);
+    this.clearOrders(slot);
     this.alive[slot] = 0;
     this.generation[slot] = (this.generation[slot]! + 1) & GENERATION_MASK;
     this.freeSlots.push(slot);
@@ -174,5 +336,53 @@ export class World {
       out.push(this.idAt(slot));
     }
     return out;
+  }
+
+  // ---- Orders --------------------------------------------------------------
+
+  createGroup(goalTile: number, faceX: Fixed, faceY: Fixed): MoveGroup {
+    const group: MoveGroup = {
+      id: this.nextGroupId++,
+      goalTile,
+      faceX,
+      faceY,
+      refs: 0,
+      status: GroupStatus.New,
+      field: null,
+      fieldChecksum: 0,
+    };
+    this.groups.set(group.id, group);
+    return group;
+  }
+
+  retainGroup(id: number): void {
+    if (id === 0) return;
+    this.groups.get(id)!.refs++;
+  }
+
+  /** Drops one unit's claim on a group; the group goes when no unit needs it. */
+  releaseGroup(id: number): void {
+    if (id === 0) return;
+    const group = this.groups.get(id);
+    if (group === undefined) return;
+    if (--group.refs <= 0) this.groups.delete(id);
+  }
+
+  /** Forgets a unit's current and queued orders. It stays where it is. */
+  clearOrders(slot: number): void {
+    this.releaseGroup(this.group[slot]!);
+    this.group[slot] = 0;
+    const base = slot * ORDER_QUEUE_LENGTH;
+    for (let k = 0; k < this.queueLength[slot]!; k++) this.releaseGroup(this.queueGroup[base + k]!);
+    this.queueLength[slot] = 0;
+    this.paths[slot] = undefined;
+    this.pathIndex[slot] = 0;
+    this.stuck[slot] = 0;
+    this.retries[slot] = 0;
+    // Any route still being worked out for the old order is now out of date.
+    this.orderSeq[slot] = (this.orderSeq[slot]! + 1) | 0;
+    this.moveState[slot] = MoveState.Idle;
+    this.goalX[slot] = this.posX[slot]!;
+    this.goalY[slot] = this.posY[slot]!;
   }
 }

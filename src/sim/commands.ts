@@ -20,14 +20,16 @@ export type Command =
       readonly x: Fixed;
       readonly y: Fixed;
       readonly count: number;
-      /** Tiles per second. */
-      readonly speed: Fixed;
+      /** Index into UNIT_TYPES. */
+      readonly unitType: number;
     }
   | {
       readonly kind: 'move';
       readonly units: readonly EntityId[];
       readonly x: Fixed;
       readonly y: Fixed;
+      /** Add to the units' waypoints instead of replacing what they are doing. */
+      readonly queue?: boolean;
     }
   | {
       readonly kind: 'stop';

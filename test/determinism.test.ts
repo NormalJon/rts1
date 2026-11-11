@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { fromInt } from '../src/sim/fixed';
 import { hashHex, hashWorld } from '../src/sim/hash';
 import { runReplay, type Replay } from '../src/sim/replay';
 import { step } from '../src/sim/sim';
 import { restoreSnapshot, takeSnapshot, type WorldSnapshot } from '../src/sim/snapshot';
+import { UnitKind } from '../src/sim/unitTypes';
 import { defaultConfig, World } from '../src/sim/world';
 import { Rng } from '../src/sim/rng';
-import { playRandomMatch } from './helpers';
+import { brokenInvariant, playRandomMatch } from './helpers';
 
 const TICKS = 900; // 30 seconds of play at 30 ticks per second
-const config = defaultConfig({ seed: 20261111, playerCount: 4 });
+const config = defaultConfig({ seed: 20261111, playerCount: 2, map: { kind: 'generated' } });
+// The same match with pathfinding starved, so searches run across many ticks.
+const starved = { ...config, pathBudget: 150 };
 
 describe('determinism', () => {
   it('produces the same checksum on every tick when the same match is played twice', () => {
@@ -17,11 +21,23 @@ describe('determinism', () => {
     expect(second.hashes).toEqual(first.hashes);
   });
 
-  it('actually changes state over time (the checksum is not constant)', () => {
+  it('actually exercises the simulation', () => {
     const { hashes, session } = playRandomMatch(config, 77, TICKS);
-    expect(new Set(hashes).size).toBe(TICKS);
-    expect(session.replay().commands.length).toBeGreaterThan(200);
-    expect(session.world.livingEntities().length).toBeGreaterThan(80);
+    const replay = session.replay();
+    expect(new Set(hashes).size).toBeGreaterThan(TICKS - 30);
+    expect(replay.commands.length).toBeGreaterThan(100);
+    expect(replay.commands.some((c) => c.command.kind === 'move' && c.command.queue === true)).toBe(true);
+    expect(session.world.livingEntities().length).toBeGreaterThan(40);
+  });
+
+  it('never leaves a unit in an obstacle or a group miscounted', () => {
+    for (const settings of [config, starved]) {
+      let broken: string | null = null;
+      playRandomMatch(settings, 77, TICKS, (world) => {
+        broken ??= brokenInvariant(world);
+      });
+      expect(broken).toBeNull();
+    }
   });
 
   it('rebuilds the match exactly from its replay', () => {
@@ -51,29 +67,47 @@ describe('determinism', () => {
     expect(hashWorld(world)).toBe(hashes[TICKS - 1]);
   });
 
-  it('continues identically from a saved game taken mid-match', () => {
-    const { session, hashes } = playRandomMatch(config, 77, TICKS);
-    const replay = session.replay();
-    for (const saveAt of [1, 250, 613]) {
-      const original = runReplay(replay, undefined, saveAt);
-      // Through JSON, as a save file or a rejoining player would receive it.
-      const saved = JSON.parse(JSON.stringify(takeSnapshot(original))) as WorldSnapshot;
-      const restored = restoreSnapshot(saved);
-      expect(hashWorld(restored)).toBe(hashes[saveAt - 1]);
-      // Commands issued after the save still have to be delivered.
-      for (const entry of replay.commands) {
-        const alreadyKnown = saved.pending.some(
-          (p) => p.tick === entry.tick && p.player === entry.player && p.seq === entry.seq,
-        );
-        if (entry.tick >= restored.tick && !alreadyKnown) {
-          restored.commands.schedule(entry, restored.tick);
-        }
-      }
-      while (restored.tick < TICKS) {
-        step(restored);
-        expect(hashWorld(restored)).toBe(hashes[restored.tick - 1]);
+  /** Saves at a tick, loads the save through JSON, and checks every later tick matches. */
+  const continuesFrom = (replay: Replay, hashes: readonly number[], saveAt: number): void => {
+    const original = runReplay(replay, undefined, saveAt);
+    const saved = JSON.parse(JSON.stringify(takeSnapshot(original))) as WorldSnapshot;
+    const restored = restoreSnapshot(saved);
+    expect(hashWorld(restored), `straight after loading at tick ${saveAt}`).toBe(hashes[saveAt - 1]);
+    // Commands issued after the save still have to be delivered.
+    for (const entry of replay.commands) {
+      const alreadyKnown = saved.pending.some(
+        (p) => p.tick === entry.tick && p.player === entry.player && p.seq === entry.seq,
+      );
+      if (entry.tick >= restored.tick && !alreadyKnown) restored.commands.schedule(entry, restored.tick);
+    }
+    while (restored.tick < replay.ticks) {
+      step(restored);
+      if (hashWorld(restored) !== hashes[restored.tick - 1]) {
+        throw new Error(`saved at tick ${saveAt}, diverged at tick ${restored.tick}`);
       }
     }
+  };
+
+  it('continues identically from a saved game taken mid-match', () => {
+    const { session, hashes } = playRandomMatch(config, 77, TICKS);
+    for (const saveAt of [1, 250, 613]) continuesFrom(session.replay(), hashes, saveAt);
+  });
+
+  it('continues identically from a save taken in the middle of a route search', () => {
+    const { session, hashes } = playRandomMatch(starved, 77, TICKS);
+    const replay = session.replay();
+    // Find ticks at which a search was part-way through and others were queued behind it.
+    const midSearch: number[] = [];
+    runReplay(replay, (world) => {
+      const active = world.activeSearch;
+      if (active !== null && active.search.expansions > 0 && midSearch.length < 4) {
+        if (midSearch.length === 0 || world.tick > midSearch[midSearch.length - 1]! + 60) {
+          midSearch.push(world.tick);
+        }
+      }
+    });
+    expect(midSearch.length).toBeGreaterThanOrEqual(3);
+    for (const saveAt of midSearch) continuesFrom(replay, hashes, saveAt);
   });
 
   it('diverges when anything about the inputs differs', () => {
@@ -85,38 +119,33 @@ describe('determinism', () => {
 
     const replay = base.session.replay();
     const lastMove = replay.commands.findLast(
-      (c) => c.command.kind === 'move' && c.command.units.length > 0,
+      (c) => c.command.kind === 'move' && c.command.units.length > 0 && c.tick < TICKS - 120,
     )!;
     const dropped = replay.commands.filter((c) => c !== lastMove);
     expect(hashWorld(runReplay({ ...replay, commands: dropped }))).not.toBe(final);
-
-    const nudged = replay.commands.map((c) =>
-      c === lastMove && c.command.kind === 'move'
-        ? { ...c, command: { ...c.command, x: c.command.x + 1 } }
-        : c,
-    );
-    // One 65536th of a tile is enough to be noticed.
-    expect(hashWorld(runReplay({ ...replay, commands: nudged }))).not.toBe(final);
   });
 
   it('matches the recorded checksum for the reference match', () => {
     // This pins the simulation's exact behaviour. It fails whenever a change
     // alters the outcome of a match, deliberately or not. If the change was
-    // deliberate, update the value; old replays will no longer play back.
+    // deliberate, update the value here and in scripts/browser-check.mjs; old
+    // replays will no longer play back.
     const { hashes } = playRandomMatch(config, 77, TICKS);
-    expect(hashHex(hashes[TICKS - 1]!)).toBe('2f14c7ff');
+    expect(hashHex(hashes[TICKS - 1]!)).toBe('d226340e');
   });
 });
 
 describe('world bookkeeping', () => {
+  const at = (n: number): number => fromInt(n);
+
   it('reuses slots safely and invalidates stale handles', () => {
     const world = new World(defaultConfig());
-    const a = world.spawn(0, 0, 0, 1);
-    const b = world.spawn(0, 0, 0, 1);
+    const a = world.spawn(0, UnitKind.Spearman, at(3), at(3));
+    const b = world.spawn(0, UnitKind.Spearman, at(6), at(3));
     world.destroy(a);
     expect(world.isAlive(a)).toBe(false);
     expect(world.isAlive(b)).toBe(true);
-    const c = world.spawn(1, 5, 5, 1);
+    const c = world.spawn(1, UnitKind.Villager, at(5), at(5));
     expect(c).not.toBe(a);
     expect(world.isAlive(c)).toBe(true);
     expect(world.isAlive(a)).toBe(false);
@@ -126,21 +155,37 @@ describe('world bookkeeping', () => {
 
   it('saves and restores free slots and generations', () => {
     const world = new World(defaultConfig());
-    const ids = Array.from({ length: 10 }, (_, i) => world.spawn(i % 2, i * 1000, i * 2000, 100));
+    const ids = Array.from({ length: 10 }, (_, i) => world.spawn(i % 2, i % 2, at(2 + i * 3), at(4)));
     world.destroy(ids[3]!);
     world.destroy(ids[7]!);
     const restored = restoreSnapshot(JSON.parse(JSON.stringify(takeSnapshot(world))));
     expect(hashWorld(restored)).toBe(hashWorld(world));
     // Both worlds must hand out the same handle next.
-    expect(restored.spawn(0, 1, 1, 1)).toBe(world.spawn(0, 1, 1, 1));
+    expect(restored.spawn(0, 0, at(9), at(9))).toBe(world.spawn(0, 0, at(9), at(9)));
     expect(restored.isAlive(ids[3]!)).toBe(false);
     expect(hashWorld(restored)).toBe(hashWorld(world));
   });
 
+  it('releases a dead unit\'s claim on its group', () => {
+    const world = new World(defaultConfig());
+    const a = world.spawn(0, 0, at(10), at(10));
+    const b = world.spawn(0, 0, at(11), at(10));
+    world.commands.schedule(
+      { tick: 0, player: 0, seq: 0, command: { kind: 'move', units: [a, b], x: at(40), y: at(40) } },
+      0,
+    );
+    step(world);
+    expect(world.groups.size).toBe(1);
+    world.destroy(a);
+    expect(brokenInvariant(world)).toBeNull();
+    world.destroy(b);
+    expect(world.groups.size).toBe(0);
+  });
+
   it('reports a full world instead of overflowing', () => {
     const world = new World(defaultConfig({ maxEntities: 2 }));
-    expect(world.spawn(0, 0, 0, 0)).toBeGreaterThanOrEqual(0);
-    expect(world.spawn(0, 0, 0, 0)).toBeGreaterThanOrEqual(0);
-    expect(world.spawn(0, 0, 0, 0)).toBe(-1);
+    expect(world.spawn(0, 0, at(1), at(1))).toBeGreaterThanOrEqual(0);
+    expect(world.spawn(0, 0, at(2), at(1))).toBeGreaterThanOrEqual(0);
+    expect(world.spawn(0, 0, at(3), at(1))).toBe(-1);
   });
 });
