@@ -10,6 +10,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
+using UnityEngine.UIElements;
 
 namespace Rts.Game.EditorTools
 {
@@ -25,6 +26,7 @@ namespace Rts.Game.EditorTools
     {
         const string MODELS = "Assets/Models";
         const string MATERIALS = "Assets/Game/Materials";
+        const string UI = "Assets/Game/UI";
         const string LIBRARY = "Assets/Game/ModelLibrary.asset";
         const string PIPELINE = "Assets/Settings/PC_RPAsset.asset";
         public const string SCENE = "Assets/Scenes/Match.unity";
@@ -144,6 +146,8 @@ namespace Rts.Game.EditorTools
             library.arrow = Unlit("Arrow", Palette.ARROW);
             library.barBack = Unlit("BarBack", Palette.BAR_BACK);
             library.barFill = Unlit("BarFill", Color.white);
+            library.overlay = Overlay("Overlay");
+            library.fog = Fog();
             EditorUtility.SetDirty(library);
             return library;
         }
@@ -228,7 +232,15 @@ namespace Rts.Game.EditorTools
             material.SetFloat("_EnvironmentReflections", 0f);
             material.SetFloat("_Surface", seeThrough ? 1f : 0f);
             material.SetFloat("_Blend", 0f);
+            // The water and the bare plots are see-through but lie on the ground, so they are drawn with
+            // the ground, last of all of it, and the fog of war then darkens them along with it. Unity
+            // works out when a material is drawn from this number and puts back anything set by hand.
+            material.SetFloat("_QueueOffset", seeThrough ? (int)RenderQueue.GeometryLast - (int)RenderQueue.Transparent : 0);
             BaseShaderGUI.SetMaterialKeywords(material, LitGUI.SetMaterialKeywords);
+            if (seeThrough && material.renderQueue != (int)RenderQueue.GeometryLast)
+            {
+                Debug.LogError("[RTS] the material " + name + " is drawn at " + material.renderQueue + ", after the fog of war; it will show through the fog");
+            }
             material.enableInstancing = true;
             EditorUtility.SetDirty(material);
             return material;
@@ -243,6 +255,56 @@ namespace Rts.Game.EditorTools
             material.enableInstancing = true;
             EditorUtility.SetDirty(material);
             return material;
+        }
+
+        /// <summary>Plain and see-through, shown from both sides: the rings, marks and plots drawn over the picture after the fog.</summary>
+        static Material Overlay(string name)
+        {
+            Material material = Asset(name, "Universal Render Pipeline/Unlit");
+            material.SetColor("_BaseColor", Color.white);
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 0f);
+            material.SetFloat("_Cull", 0f);
+            BaseShaderGUI.SetMaterialKeywords(material);
+            material.enableInstancing = true;
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        /// <summary>The fog of war, drawn over the whole picture (Shaders/Fog.shader).</summary>
+        static Material Fog()
+        {
+            if (Shader.Find("Rts/Fog") == null)
+            {
+                Debug.LogError("[RTS] the fog shader is missing or did not compile; the fog of war will not be drawn");
+                return null;
+            }
+            Material material = Asset("Fog", "Rts/Fog");
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        /// <summary>
+        /// What the display is drawn on: sized for a screen 900 high and scaled
+        /// to whatever the screen is, so it is as readable on a large one.
+        /// </summary>
+        static PanelSettings Panel()
+        {
+            string path = UI + "/Panel.asset";
+            PanelSettings panel = AssetDatabase.LoadAssetAtPath<PanelSettings>(path);
+            if (panel == null)
+            {
+                panel = ScriptableObject.CreateInstance<PanelSettings>();
+                AssetDatabase.CreateAsset(panel, path);
+            }
+            panel.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(UI + "/Theme.tss");
+            if (panel.themeStyleSheet == null) Debug.LogError("[RTS] no theme at " + UI + "/Theme.tss; the display will have no lettering");
+            panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            panel.referenceResolution = new Vector2Int(1600, 900);
+            panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+            panel.match = 1f;
+            EditorUtility.SetDirty(panel);
+            return panel;
         }
 
         /// <summary>
@@ -316,7 +378,14 @@ namespace Rts.Game.EditorTools
             runner.library = library;
             runner.view = view;
             runner.sun = sun;
-            match.AddComponent<MatchHud>();
+
+            var display = new GameObject("Display");
+            UIDocument document = display.AddComponent<UIDocument>();
+            document.panelSettings = Panel();
+            Hud hud = display.AddComponent<Hud>();
+            hud.styles = AssetDatabase.LoadAssetAtPath<StyleSheet>(UI + "/Hud.uss");
+            if (hud.styles == null) Debug.LogError("[RTS] no style sheet at " + UI + "/Hud.uss; the display will be unstyled");
+            runner.hud = hud;
 
             RenderSettings.skybox = null;
             RenderSettings.ambientMode = AmbientMode.Trilight;

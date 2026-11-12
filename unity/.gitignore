@@ -34,3 +34,7 @@ crashlytics-build.properties
 *.aab
 *.unitypackage
 *.app
+
+# A scene the test runner makes for itself and takes away; it is left behind only if a run is cut short.
+/Assets/InitTestScene*.unity
+/Assets/InitTestScene*.unity.meta

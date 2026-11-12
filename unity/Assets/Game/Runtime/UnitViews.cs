@@ -10,6 +10,9 @@ namespace Rts.Game
     /// posed every frame from what the simulation says of it. Between ticks a
     /// unit is drawn part-way from where it was to where it now is, so
     /// movement is smooth at any frame rate.
+    ///
+    /// Only those the viewer's side can see are drawn. One who walks out of
+    /// sight vanishes; one who dies out of sight is never seen to fall.
     /// </summary>
     public sealed class UnitViews
     {
@@ -37,6 +40,7 @@ namespace Rts.Game
         readonly Ground ground;
         readonly ModelLibrary library;
         readonly ModelMaterials materials;
+        readonly Sight sight;
         readonly Transform parent;
 
         // Per-unit display state, by slot.
@@ -51,13 +55,16 @@ namespace Rts.Game
         readonly float[] drawnX;
         readonly float[] drawnY;
         readonly GameObject[] bodies;
+        /// <summary>Whose body is kept in each slot. It is kept, hidden, while its owner is out of sight.</summary>
+        readonly int[] bodyId;
         readonly ModelLibrary.UnitModel[] models;
         readonly List<Fallen> fallen = new List<Fallen>();
 
         public int Count { get; private set; }
 
-        public UnitViews(World world, Ground ground, ModelLibrary library, ModelMaterials materials, Transform parent)
+        public UnitViews(World world, Ground ground, ModelLibrary library, ModelMaterials materials, Sight sight, Transform parent)
         {
+            this.sight = sight;
             this.world = world;
             this.ground = ground;
             this.library = library;
@@ -74,6 +81,7 @@ namespace Rts.Game
             drawnX = new float[n];
             drawnY = new float[n];
             bodies = new GameObject[n];
+            bodyId = new int[n];
             models = new ModelLibrary.UnitModel[n];
             for (int slot = 0; slot < n; slot++) shownId[slot] = -1;
             RememberPositions();
@@ -82,6 +90,20 @@ namespace Rts.Game
         /// <summary>Where a unit was drawn this frame, in tiles.</summary>
         public float DrawnX(int slot) => drawnX[slot];
         public float DrawnY(int slot) => drawnY[slot];
+
+        /// <summary>Where a unit is drawn, in tiles: part-way from its last position to its current one.</summary>
+        public Vector2 Position(int slot, float alpha)
+        {
+            float x = Ground.F(world.posX[slot]);
+            float y = Ground.F(world.posY[slot]);
+            return new Vector2(prevX[slot] + (x - prevX[slot]) * alpha, prevY[slot] + (y - prevY[slot]) * alpha);
+        }
+
+        /// <summary>Whether a unit has a body on the screen just now.</summary>
+        public bool IsDrawn(int slot)
+        {
+            return shownId[slot] != -1 && bodies[slot] != null && bodies[slot].activeSelf;
+        }
 
         /// <summary>
         /// Takes away, without ceremony, the bodies of those who died while
@@ -93,10 +115,9 @@ namespace Rts.Game
         {
             for (int slot = 0; slot < shownId.Length; slot++)
             {
-                int id = shownId[slot];
-                if (id == -1 || world.IsAlive(id)) continue;
+                if (bodies[slot] == null || world.IsAlive(bodyId[slot])) continue;
                 shownId[slot] = -1;
-                if (bodies[slot] != null) UnityEngine.Object.Destroy(bodies[slot]);
+                UnityEngine.Object.Destroy(bodies[slot]);
                 bodies[slot] = null;
             }
         }
@@ -111,7 +132,8 @@ namespace Rts.Game
             }
         }
 
-        public void Draw(float alpha, float dt, float seconds, Overlays overlays)
+        /// <param name="watched">Says whether a unit, by its handle, is to have a ring and its health shown: the selection. May be null.</param>
+        public void Draw(float alpha, float dt, float seconds, Overlays overlays, Func<int, bool> watched = null)
         {
             int tickRate = world.config.tickRate;
             float tickSeconds = 1f / tickRate;
@@ -123,6 +145,12 @@ namespace Rts.Game
                 if (id == -1)
                 {
                     if (slot >= world.highWater) break;
+                    // Someone who died out of sight: the body kept for them is quietly taken away.
+                    if (bodies[slot] != null && !world.IsAlive(bodyId[slot]))
+                    {
+                        UnityEngine.Object.Destroy(bodies[slot]);
+                        bodies[slot] = null;
+                    }
                     continue;
                 }
                 if (world.IsAlive(id)) continue;
@@ -145,6 +173,16 @@ namespace Rts.Game
             for (int slot = 0; slot < world.highWater; slot++)
             {
                 if (world.alive[slot] == 0 || world.mobile[slot] == 0) continue;
+                if (!sight.ShowsNow(slot))
+                {
+                    // Out of sight. If it dies there, nobody sees it fall.
+                    if (shownId[slot] != -1)
+                    {
+                        shownId[slot] = -1;
+                        if (bodies[slot] != null) bodies[slot].SetActive(false);
+                    }
+                    continue;
+                }
                 int typeId = world.entityType[slot];
                 EntityType type = world.TypeOf(slot);
                 float curX = Ground.F(world.posX[slot]);
@@ -154,11 +192,20 @@ namespace Rts.Game
                 if (shownId[slot] != id)
                 {
                     // A newcomer in this slot: there is nowhere to blend from.
-                    ModelLibrary.UnitModel fresh = library.UnitFor(typeId);
-                    if (fresh == null) continue;
-                    if (bodies[slot] != null) UnityEngine.Object.Destroy(bodies[slot]);
-                    bodies[slot] = Raise(fresh, type.name + " " + id, world.owner[slot]);
-                    models[slot] = fresh;
+                    if (bodies[slot] != null && bodyId[slot] == id)
+                    {
+                        // Back in sight: the body put away when it left is brought out again.
+                        bodies[slot].SetActive(true);
+                    }
+                    else
+                    {
+                        ModelLibrary.UnitModel fresh = library.UnitFor(typeId);
+                        if (fresh == null) continue;
+                        if (bodies[slot] != null) UnityEngine.Object.Destroy(bodies[slot]);
+                        bodies[slot] = Raise(fresh, type.name + " " + id, world.owner[slot]);
+                        bodyId[slot] = id;
+                        models[slot] = fresh;
+                    }
                     shownId[slot] = id;
                     prevX[slot] = curX;
                     prevY[slot] = curY;
@@ -237,11 +284,13 @@ namespace Rts.Game
                 count++;
 
                 int hp = world.hp[slot];
-                if (hp < type.hp)
+                float radius = Ground.F(world.radius[slot]) * Ground.TILE;
+                bool picked = watched != null && watched(id);
+                if (picked) overlays.AddRing(new Vector3(place.x, place.y + 0.07f, place.z), radius * 1.45f);
+                if (picked || hp < type.hp)
                 {
                     // Over the head, not over the tip of a spear or lance.
                     float head = Mathf.Min(model.height, type.charge > 0 ? 2.9f : 2.1f);
-                    float radius = Ground.F(world.radius[slot]) * Ground.TILE;
                     overlays.AddBar(new Vector3(place.x, place.y + head + 0.35f, place.z), Mathf.Max(1f, radius * 2.4f), (float)hp / type.hp);
                 }
             }

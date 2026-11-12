@@ -11,11 +11,15 @@ namespace Rts.Game.EditorTools
     /// Puts the match in front of whoever opens the project.
     ///
     /// When the editor starts with nothing open, the match scene is opened,
-    /// so that pressing Play shows the game and not an empty world.
+    /// so that pressing Play shows the game and not an empty world. Pressing
+    /// Play starts a match for the player against the computer.
     ///
-    /// "Watch a Match" (the RTS menu) goes one further: it opens the scene and
-    /// presses Play with the game filling the editor window. The same can be
-    /// asked for when starting the editor:
+    /// "Play a Match" and "Watch a Match" (the RTS menu) go one further: they
+    /// open the scene and press Play with the game filling the editor window,
+    /// the first with the player leading blue and the second with two computer
+    /// players and nobody at the controls. The same can be asked for when
+    /// starting the editor:
+    ///   Unity.exe -projectPath unity -executeMethod Rts.Game.EditorTools.Watch.Play
     ///   Unity.exe -projectPath unity -executeMethod Rts.Game.EditorTools.Watch.Run
     ///
     /// Neither is done at once. While the editor is starting, its windows and
@@ -40,9 +44,22 @@ namespace Rts.Game.EditorTools
             if (SessionState.GetBool(PLAY_WANTED, false) || !SessionState.GetBool(OPENED_ONCE, false)) EditorApplication.update += WhenSettled;
         }
 
-        [MenuItem("RTS/Watch a Match")]
+        [MenuItem("RTS/Play a Match", priority = 0)]
+        public static void Play()
+        {
+            Start(MatchMode.Play);
+        }
+
+        [MenuItem("RTS/Watch a Match", priority = 1)]
         public static void Run()
         {
+            Start(MatchMode.Watch);
+        }
+
+        static void Start(MatchMode mode)
+        {
+            // The game reads this when the match starts, and forgets it.
+            SessionState.SetString(MatchRunner.ASKED_FOR_KEY, mode.ToString());
             SessionState.SetBool(PLAY_WANTED, true);
             quiet = 0;
             EditorApplication.update -= WhenSettled;
@@ -85,7 +102,7 @@ namespace Rts.Game.EditorTools
             else if (first && nothingOpen)
             {
                 EditorSceneManager.OpenScene(ProjectSetup.SCENE);
-                Debug.Log("[RTS] opened the match scene; press Play to watch");
+                Debug.Log("[RTS] opened the match scene; press Play to play a match");
             }
         }
 

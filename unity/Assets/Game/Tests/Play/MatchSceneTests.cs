@@ -33,6 +33,8 @@ namespace Rts.Game.Tests
             folder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Logs", "Snapshots"));
             Directory.CreateDirectory(folder);
 
+            // Two computer players and nobody at the controls, as the game was first shown.
+            MatchRunner.Next = new MatchPlan { mode = MatchMode.Watch, paused = true };
             SceneManager.LoadScene("Match");
             yield return null;
             yield return null;

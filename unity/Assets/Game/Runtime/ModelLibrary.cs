@@ -53,6 +53,10 @@ namespace Rts.Game
         public Material arrow;
         public Material barBack;
         public Material barFill;
+        /// <summary>Plain, see-through and drawn after the fog: selection rings, order markers, the plot under the pointer.</summary>
+        public Material overlay;
+        /// <summary>Draws the fog of war over the picture (Shaders/Fog.shader).</summary>
+        public Material fog;
 
         public UnitModel UnitFor(int entityType)
         {

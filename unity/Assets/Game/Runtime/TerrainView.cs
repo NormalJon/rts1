@@ -24,7 +24,11 @@ namespace Rts.Game
         /// <summary>Each tile's own colour and the blend at each corner, as linear red, green, blue.</summary>
         readonly float[] tileColour;
         readonly float[] cornerColour;
-        /// <summary>The terrain as last drawn, to spot what has changed since.</summary>
+        /// <summary>
+        /// The terrain as last drawn, to spot what has changed since. It is also
+        /// what the player believes is there: a tree felled out of sight stays
+        /// standing on the screen until someone goes and looks.
+        /// </summary>
         readonly byte[] seenTerrain;
         bool pictureStale;
 
@@ -219,16 +223,19 @@ namespace Rts.Game
             renderer.shadowCastingMode = shadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
         }
 
+        /// <summary>The terrain of a tile as the player last saw it.</summary>
+        public int SeenTerrain(int tile) => seenTerrain[tile];
+
         /// <summary>
         /// Brings the ground up to date with tiles that have changed: felled
-        /// trees, worked-out deposits, tilled fields.
+        /// trees, worked-out deposits, tilled fields. Only for tiles in sight.
         /// </summary>
-        public void Sync()
+        public void Sync(Sight sight)
         {
             byte[] terrain = map.terrain;
             for (int tile = 0; tile < terrain.Length; tile++)
             {
-                if (terrain[tile] == seenTerrain[tile]) continue;
+                if (terrain[tile] == seenTerrain[tile] || !sight.SeesTile(tile)) continue;
                 seenTerrain[tile] = terrain[tile];
                 RepaintAround(tile);
                 onTileChanged?.Invoke(tile);

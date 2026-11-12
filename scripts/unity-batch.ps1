@@ -7,6 +7,8 @@
 #   scripts\unity-batch.ps1 -Tests PlayMode -Filter MatchSceneTests
 #
 # Exit code 0 means Unity finished and, for tests, that all of them passed.
+# Unity is stopped, with exit code 4, if it has not finished in -TimeoutSeconds
+# (a test that waits for something that never comes would otherwise run for ever).
 # The full log is unity/Logs/batch.log; test results are unity/Logs/tests-<kind>.xml.
 
 param(
@@ -14,6 +16,7 @@ param(
   [ValidateSet('', 'EditMode', 'PlayMode')][string]$Tests = '',
   [string]$Filter = '',
   [string[]]$UnityArgs = @(),
+  [int]$TimeoutSeconds = 900,
   [int]$ShowLines = 40
 )
 
@@ -49,8 +52,15 @@ if ($Tests -ne '') {
 $arguments += $UnityArgs
 
 $started = Get-Date
-$process = Start-Process -FilePath $editor -ArgumentList $arguments -PassThru -Wait
+$process = Start-Process -FilePath $editor -ArgumentList $arguments -PassThru
+$finished = $process.WaitForExit($TimeoutSeconds * 1000)
 $seconds = [int]((Get-Date) - $started).TotalSeconds
+if (-not $finished) {
+  Stop-Process -Id $process.Id -Force
+  Write-Output "Unity $version had not finished after $seconds s and was stopped. The end of the log:"
+  if (Test-Path $log) { Get-Content $log -Tail 15 | ForEach-Object { if ($_.Length -gt 200) { $_.Substring(0, 200) } else { $_ } } }
+  exit 4
+}
 Write-Output "Unity $version exit code $($process.ExitCode) after $seconds s"
 
 if (Test-Path $log) {

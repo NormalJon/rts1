@@ -4,6 +4,7 @@
     "references": [
         "Rts.Core",
         "Rts.Game",
+        "Unity.InputSystem",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],

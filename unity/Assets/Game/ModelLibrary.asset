@@ -212,3 +212,5 @@ MonoBehaviour:
   arrow: {fileID: 2100000, guid: f9577cf68d9f5654690fd2cfbf10eacc, type: 2}
   barBack: {fileID: 2100000, guid: 9129331e32e659a43a9aa998b08ed285, type: 2}
   barFill: {fileID: 2100000, guid: 627b41895cfa1484c98804ee9d13087b, type: 2}
+  overlay: {fileID: 2100000, guid: 87a5c3519b337b54fb8846fab69e7d75, type: 2}
+  fog: {fileID: 2100000, guid: a96127d27c6466c40a73288765fdf2cd, type: 2}

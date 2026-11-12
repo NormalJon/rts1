@@ -1,0 +1,2 @@
+/* The display starts from Unity's own plain look and Hud.uss does the rest. */
+@import url("unity-theme://default");
