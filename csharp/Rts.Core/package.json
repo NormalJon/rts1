@@ -1,0 +1,7 @@
+{
+  "name": "com.rts.core",
+  "version": "0.1.0",
+  "displayName": "Rts Core",
+  "description": "The game's simulation and skirmish AI. No engine code: Unity reads this folder as a package and compiles the same source files the .NET tests run.",
+  "unity": "6000.3"
+}

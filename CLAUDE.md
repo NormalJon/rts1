@@ -71,6 +71,29 @@ built on the branch `step-9-csharp-rule-tests`, and the owner said merge on
 New rules are to be written in C# with tests in `Rules/` in the same style,
 and what must always be true of them added to `Helpers.BrokenInvariant`.
 
+Step 10, the first picture in Unity, is under way on the branch
+`step-10-first-picture` (begun 12 November 2026, not finished, not merged).
+So far it has only the groundwork:
+
+- `unity/`: the Unity project, made from Unity's own "3D URP" template (the
+  Universal Render Pipeline, chosen over the High Definition one because far
+  more of the art on sale is made for it and it copes better with hundreds of
+  units), without the template's tutorial files, on packages that come with
+  the editor so that nothing has to be downloaded to open it. It holds no
+  game code yet.
+- `csharp/Rts.Core` is also a Unity package (`package.json` and
+  `Rts.Core.asmdef` beside the `.csproj`), which `unity/Packages/manifest.json`
+  points at. Unity compiles the same source files the .NET tests run; the
+  `.asmdef` forbids engine code in them.
+- For that to work the .NET SDK's output had to leave the source folders:
+  `csharp/Directory.Build.props` sends it to `csharp/.build/`. Unity would
+  otherwise try to import `bin` and `obj`. All 289 tests pass from there.
+
+Checked: the library compiles with Unity's own compiler and reference files
+(run by hand, since the editor could not be started; see the licence note
+under "The owner's computer"). Not checked: anything inside the running
+editor.
+
 Checks that must stay green: `npm test` (257 tests), `npm run typecheck`,
 `npm run check:browser`, `npm run check:recordings`, and
 `dotnet test csharp/Rts.slnx` (289 tests, about half a minute with
@@ -115,6 +138,19 @@ The work has moved here from the cloud workspace.
   with their own Unity account and taken the free Personal licence. Claude
   must not create accounts, type passwords or accept licence terms: ask the
   owner to do it.
+- The owner did sign in and take the Personal licence on 12 November 2026,
+  but the editor started from a command line still stops with "No valid Unity
+  Editor license found" (exit code 198). The Hub here is a Windows app
+  package, and Windows keeps what it writes in a private folder: the licence
+  is in `%LOCALAPPDATA%\Packages\UnityTechnologies.UnityHub_*\LocalCache\Local\Unity\licenses`,
+  while the editor looks in `%LOCALAPPDATA%\Unity\licenses`, which is empty.
+  To see what the editor can see, run
+  `Unity.Licensing.Client.exe --showEntitlements` from
+  `Editor\Data\Resources\Licensing\Client` in the editor's folder. Not yet
+  tried: whether opening a project from the Hub puts a licence where the
+  editor looks. If it does not, the remedy is the ordinary Unity Hub
+  installer from unity.com in place of the app package. Do not copy the
+  licence file across without the owner saying so.
 - A session's PATH can be out of date. If `dotnet` or `node` is not found,
   they are in `C:\Program Files\dotnet` and `C:\Program Files\nodejs`.
   Python is not installed.
@@ -193,8 +229,10 @@ the fuller list of rules that came out of the work)
 
 ## Waiting on the owner
 
-- To sign in to Unity Hub with a Unity account and take the free Personal
-  licence, so that Unity will open a project.
+- To open `C:\dev\rts_1\unity` once from Unity Hub ("Add", then "Add project
+  from disk"), wait for the editor to finish loading, and close it. That
+  shows whether the editor works when the Hub starts it, and may put the
+  licence where a command line can use it.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
   what budget. Not needed until the graphics pass, but worth looking early.
   Claude's suggestion of 12 November 2026, not yet agreed: free scanned

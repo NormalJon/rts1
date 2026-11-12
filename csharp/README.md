@@ -8,6 +8,17 @@ what happens in a match.
 
 It is .NET Standard 2.1 and C# 9, which Unity 6 and Godot 4 (.NET) both accept.
 
+Unity uses these source files as they are: `Rts.Core/package.json` and
+`Rts.Core/Rts.Core.asmdef` make the folder a Unity package, and
+`unity/Packages/manifest.json` points at it. So a rule is changed in one
+place, the tests here check it, and Unity compiles the same file. Two things
+follow. The `.asmdef` sets `noEngineReferences`, so Unity itself refuses
+engine code in this folder. And the .NET SDK must leave nothing in it, since
+Unity would import that too: `Directory.Build.props` sends all build output to
+`csharp/.build/` (Unity skips folders whose names begin with a dot). The
+`.meta` files Unity writes beside each source file are kept in the
+repository.
+
 ## Commands
 
 ```bash

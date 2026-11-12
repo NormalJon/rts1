@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    Build output goes to csharp/.build, not into each project's own bin and obj
+    folders. Unity reads Rts.Core straight from its source folder as a package,
+    and would try to import anything the .NET SDK left there. Unity skips
+    folders whose names begin with a dot.
+  -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory).build\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(MSBuildThisFileDirectory).build\bin\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
+
+</Project>

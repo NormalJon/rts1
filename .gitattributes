@@ -1,1 +1,14 @@
 recordings/*.json text eol=lf
+
+# Unity writes its own text files with LF endings on every system.
+unity/**/*.meta text eol=lf
+unity/**/*.unity text eol=lf
+unity/**/*.asset text eol=lf
+unity/**/*.prefab text eol=lf
+unity/**/*.mat text eol=lf
+unity/**/*.inputactions text eol=lf
+unity/Packages/*.json text eol=lf
+unity/ProjectSettings/*.txt text eol=lf
+csharp/**/*.meta text eol=lf
+
+*.glb binary
