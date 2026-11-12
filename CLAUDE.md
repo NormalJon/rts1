@@ -54,10 +54,10 @@ on 12 November 2026. What it added:
 `csharp/README.md` says how the port is laid out, the rules its code keeps
 to, and what has not been checked. Read it before changing anything there.
 
-The C# library's own rule-by-rule tests are on the branch
-`step-9-csharp-rule-tests`, pushed and not yet merged: it waits for the owner
-to say so. It has `main` merged into it. What it adds, all in
-`csharp/Rts.Core.Tests` (nothing in `src/` or `csharp/Rts.Core` was touched):
+The C# library's own rule-by-rule tests are on `main` as well: they were
+built on the branch `step-9-csharp-rule-tests`, and the owner said merge on
+12 November 2026. What they added, all in `csharp/Rts.Core.Tests` (nothing in
+`src/` or `csharp/Rts.Core` was touched):
 
 - `Helpers.cs`: the checks of `test/helpers.ts` (resources conserved, map
   regions right, buildings and fields match the map, groups counted right, no
@@ -73,8 +73,8 @@ and what must always be true of them added to `Helpers.BrokenInvariant`.
 
 Checks that must stay green: `npm test` (257 tests), `npm run typecheck`,
 `npm run check:browser`, `npm run check:recordings`, and
-`dotnet test csharp/Rts.slnx` (289 tests on `step-9-csharp-rule-tests`, about
-half a minute with `-c Release`; 43 before it). The reference match must hash to
+`dotnet test csharp/Rts.slnx` (289 tests, about half a minute with
+`-c Release`). The reference match must hash to
 `8faaf6a6` (`test/determinism.test.ts`, `scripts/browser-check.mjs`,
 `test/recordings.test.ts` and `csharp/Rts.Core.Tests/ReplayTests.cs`); change
 that number only when a change in how matches play out is intended, and then
@@ -193,8 +193,6 @@ the fuller list of rules that came out of the work)
 
 ## Waiting on the owner
 
-- Whether to merge `step-9-csharp-rule-tests` (the C# library's rule-by-rule
-  tests) into `main`.
 - To sign in to Unity Hub with a Unity account and take the free Personal
   licence, so that Unity will open a project.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
