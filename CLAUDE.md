@@ -15,9 +15,9 @@ about moving to a game engine.
 
 ## How we work
 
-- One step at a time. Each step is built on its own branch (`step-8-ages` and
-  so on), pushed, and merged into `main` only when the owner says to. No pull
-  requests unless asked for.
+- One step at a time. Each step is built on its own branch (`step-8-ages`,
+  then `step-9-csharp-port`, and so on), pushed, and merged into `main` only
+  when the owner says to. No pull requests unless asked for.
 - Commit and push before ending a turn. Nothing should exist only on one machine.
 - This is an original game in a familiar genre. Do not copy another game's
   names, art, maps or look.
@@ -37,16 +37,28 @@ The core build is finished in TypeScript, in eight steps:
 7. Skirmish AI (and farms)
 8. Ages and technology
 
-Steps 1 to 7 are on `main`. Step 8 is on `step-8-ages`, finished and pushed,
-waiting for the owner to say merge. (Delete this sentence once it is merged.)
+All eight steps are on `main`.
 
 Checks that must stay green: `npm test` (253 tests), `npm run typecheck`, and
 `npm run check:browser`. The reference match must hash to `8faaf6a6`
 (`test/determinism.test.ts` and `scripts/browser-check.mjs`); change that
 number only when a change in how matches play out is intended.
 
-Never checked: frame rate on a real graphics card (the cloud workspace drew in
-software), and determinism in Firefox or Safari.
+On the owner's computer the playtest held 144 frames a second on its opening
+scene. Still never checked: frame rate in a large late battle, and determinism
+in Firefox or Safari.
+
+## The owner's computer
+
+- Windows 11 with a strong NVIDIA graphics card. Work runs there in local
+  sessions of the Claude desktop app, so the engine can be run and looked at.
+- Keep the project folder outside OneDrive. The project's packages are
+  thousands of small files, and Unity copes with a synced folder worse still.
+- Commits made there should use GitHub's private "noreply" address as the
+  author email, because the repository is public.
+- `npm run check:browser` needs Playwright, which is not among the project's
+  packages (the cloud workspace had it preinstalled). Install it, or play the
+  reference match in a browser another way and compare the checksum.
 
 ## Decided: moving to a game engine
 
@@ -72,7 +84,7 @@ anything.
 input. It never decides what happens in a match: no engine physics, pathfinding
 or timers in game rules.
 
-**Order of work**
+**Order of work** (the first of these is step 9 of the build)
 
 1. Port `src/sim` and `src/ai` to a C# class library with no engine code in
    it, so the same library serves Unity or Godot. Proof of the port: matches
@@ -103,7 +115,7 @@ and siege; garrisoning; civilizations; victory conditions in the simulation.
 
 ## Waiting on the owner
 
-- Is the computer Windows or Mac?
+- A plain yes to Unity 6 before it is installed. The C# port does not depend
+  on the answer.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
-  what budget.
-- Whether to merge step 8.
+  what budget. Not needed until the graphics pass, but worth looking early.
