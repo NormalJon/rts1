@@ -45,7 +45,7 @@ export function build() {
     { t: 0, ...rest },
     { t: 0.3, ...rest, hips: [0, 0.01, -0.02], torso: [-0.12, -0.12], armR: -2.2, armL: -0.5, itemR: 1.3, legL: -0.15, legR: 0.1 },
     { t: 0.42, ...rest, hips: [0, 0.01, -0.02], torso: [-0.14, -0.14], armR: -2.3, armL: -0.55, itemR: 1.25, legL: -0.15, legR: 0.1 },
-    { t: 0.54, ...rest, hips: [0, -0.06, 0.05], torso: [0.32, 0.1], armR: -0.2, armL: -0.25, itemR: 1.35, legL: -0.3, shinL: 0.3, legR: 0.2 },
+    { t: 0.54, hit: true, ...rest, hips: [0, -0.06, 0.05], torso: [0.32, 0.1], armR: -0.2, armL: -0.25, itemR: 1.35, legL: -0.3, shinL: 0.3, legR: 0.2 },
     { t: 0.7, ...rest, hips: [0, -0.05, 0.04], torso: [0.28, 0.08], armR: -0.3, armL: -0.25, itemR: 1.35, legL: -0.28, shinL: 0.28, legR: 0.18 },
     { t: 1.1, ...rest },
   ], 22);

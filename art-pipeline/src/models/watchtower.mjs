@@ -48,8 +48,8 @@ export function build() {
   m.color(C.thatch, 0.07).at(T(0, roofY, 0), () => m.frustum(pw + 1.0, pw + 1.0, 0.25, 0.25, 2.1));
   m.color(C.thatchDark, 0.05).at(T(0, roofY + 1.95, 0), () => m.frustum(0.6, 0.6, 0.1, 0.1, 0.45, { bottom: false }));
 
-  // Ladder up the -Z side.
-  const lx = 0.28, bottom = [0, 0, -baseR - 1.5], topPt = [0, floorY + 0.1, -pw / 2 - 0.02];
+  // Ladder up the -Z side, set steep so that its foot stays on the tower's 3 x 3 tile plot.
+  const lx = 0.28, bottom = [0, 0, -baseR - 1.02], topPt = [0, floorY + 0.1, -pw / 2 - 0.02];
   m.color(C.timberLight, 0.06);
   for (const s of [-1, 1]) m.beam([s * lx, bottom[1], bottom[2]], [s * lx, topPt[1], topPt[2]], 0.08, 0.1);
   for (let i = 1; i < 14; i++) {
@@ -65,6 +65,7 @@ export function build() {
     label: 'Watchtower',
     note: 'Cross-braced timber tower with a jettied platform under a thatched cap.',
     yaw: 0.7,
+    plot: 3,
     roots: [{ name: 'watchtower', mesh: m.toMesh('watchtower') }],
   };
 }

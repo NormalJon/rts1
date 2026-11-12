@@ -1,14 +1,16 @@
 /**
- * The playtest page: a small skirmish map to try the controls on.
+ * The playtest page: a small skirmish map to try the game on.
  *
- * Two companies face each other across a river. The player commands the blue
- * one; the red one stands its ground until there is an AI to lead it.
+ * Two towns face each other across a river. The player leads the blue one.
+ * The red one has no general until the game has an AI, so a short script
+ * stands in for it here: its villagers work, a garrison guards the town, and
+ * a raiding party sets out for the player's town every so often.
  */
 
 import { Kind, RESOURCE_COUNT, RESOURCE_NAMES } from '../../sim/entityTypes';
 import { hashHex, hashWorld } from '../../sim/hash';
 import { Terrain } from '../../sim/map';
-import { defaultConfig } from '../../sim/world';
+import { defaultConfig, OrderKind } from '../../sim/world';
 import { LocalSession } from '../../session/localSession';
 import { FixedStepper } from '../../session/stepper';
 import { Controls } from './controls';
@@ -44,10 +46,12 @@ async function start(): Promise<void> {
   const { world } = session;
   const [home, enemy] = world.map.starts;
   if (!home || !enemy) throw new Error('the map has no start positions');
-  // Three spearmen beside each town to begin with; the rest must be trained.
+  // Three spearmen beside the player's town to begin with; the rest must be
+  // trained. Red gets a garrison of five, who never leave home.
   const tile = 1 << 16;
   session.issue(0, { kind: 'spawn', x: home.x - 6 * tile, y: home.y + 2 * tile, count: 3, unitType: Kind.Spearman });
   session.issue(1, { kind: 'spawn', x: enemy.x + 6 * tile, y: enemy.y - 2 * tile, count: 3, unitType: Kind.Spearman });
+  session.issue(1, { kind: 'spawn', x: enemy.x - 6 * tile, y: enemy.y - 3 * tile, count: 2, unitType: Kind.Archer });
   // Let everyone find their feet before the curtain goes up.
   for (let i = 0; i < 60; i++) session.step();
   // There is no AI yet, so the red villagers are simply set to work near home:
@@ -60,6 +64,45 @@ async function start(): Promise<void> {
     }
   });
   for (let i = 0; i < 30; i++) session.step();
+
+  // The stand-in for a red general. Everything it does goes through the same
+  // commands a player's clicks do, so a replay of the match still plays back.
+  const townCentreOf = (player: number): number =>
+    world.livingEntities(player).find((id) => world.entityType[id & 0xfffff] === Kind.TownCentre) ?? -1;
+  const blueTown = townCentreOf(0);
+  const redTown = townCentreOf(1);
+  const isSoldier = (id: number): boolean => world.entityType[id & 0xfffff] !== Kind.Villager;
+  const garrison = new Set(world.livingUnits(1).filter(isSoldier));
+  const RAID_FIRST = 180 * world.config.tickRate;
+  const RAID_EVERY = 90 * world.config.tickRate;
+  let raids = 0;
+  let nextRaid = RAID_FIRST;
+  let musterAt = -1;
+  const redGeneral = (): void => {
+    if (!world.isAlive(redTown)) return;
+    if (world.tick >= nextRaid) {
+      // Half spears, a third bows, the rest on horseback; one more each time, up to fourteen.
+      const size = Math.min(3 + raids, 14);
+      const spears = Math.ceil(size / 2);
+      const bows = Math.floor(size / 3);
+      const towardMiddle = enemy.x > home.x ? -1 : 1;
+      const muster = { x: enemy.x + towardMiddle * 8 * tile, y: enemy.y + towardMiddle * 4 * tile };
+      session.issue(1, { kind: 'spawn', ...muster, count: spears, unitType: Kind.Spearman });
+      session.issue(1, { kind: 'spawn', ...muster, count: bows, unitType: Kind.Archer });
+      session.issue(1, { kind: 'spawn', ...muster, count: size - spears - bows, unitType: Kind.Horseman });
+      raids++;
+      nextRaid += RAID_EVERY;
+      musterAt = world.tick + 10;
+    }
+    if (world.tick === musterAt) {
+      // Every red soldier who is not garrison and has nothing to do marches on the player's town.
+      const party = world.livingUnits(1).filter((id) => {
+        const slot = id & 0xfffff;
+        return isSoldier(id) && !garrison.has(id) && world.orderKind[slot] === OrderKind.None && world.engaged[slot] === 0;
+      });
+      if (party.length > 0) session.issue(1, { kind: 'attackMove', units: party, x: home.x, y: home.y });
+    }
+  };
 
   let view: GameView;
   try {
@@ -76,6 +119,10 @@ async function start(): Promise<void> {
   const controls = new Controls(0, session, view, canvas, byId('select-box'), {
     selection: byId('selection'),
     groups: byId('groups'),
+    orders: byId('orders'),
+    attackMove: byId<HTMLButtonElement>('btn-attack'),
+    patrol: byId<HTMLButtonElement>('btn-patrol'),
+    hold: byId<HTMLButtonElement>('btn-hold'),
     stop: byId<HTMLButtonElement>('btn-stop'),
     idle: byId<HTMLButtonElement>('btn-idle'),
     actions: byId('actions'),
@@ -91,6 +138,22 @@ async function start(): Promise<void> {
   );
 
   view.onTileChanged = (changed) => minimap.repaintTile(changed);
+  controls.onAlarm = (x, y) => minimap.ping(x, y);
+
+  // The match is decided when a town centre falls, though play carries on.
+  const banner = byId('banner');
+  let decided = false;
+  const judge = (): void => {
+    if (decided) return;
+    const won = !world.isAlive(redTown);
+    const lost = !world.isAlive(blueTown);
+    if (!won && !lost) return;
+    decided = true;
+    banner.children[0]!.textContent = won ? 'Victory' : 'Defeat';
+    banner.children[1]!.textContent = won ? 'The red town centre has fallen.' : 'Your town centre has fallen.';
+    banner.hidden = false;
+    setTimeout(() => (banner.hidden = true), 9000);
+  };
 
   const stores = RESOURCE_NAMES.map((name) => byId(`stock-${name}`));
   const shown = new Array<number>(RESOURCE_COUNT).fill(-1);
@@ -122,7 +185,19 @@ async function start(): Promise<void> {
   });
 
   // For poking at the match from the browser console, and for automated checks.
-  (window as unknown as Record<string, unknown>).__playtest = { session, view, controls };
+  (window as unknown as Record<string, unknown>).__playtest = {
+    session,
+    view,
+    controls,
+    /** Runs the match forward a number of ticks at once. */
+    advance: (ticks: number): void => {
+      for (let i = 0; i < ticks; i++) {
+        view.rememberPositions();
+        redGeneral();
+        session.step();
+      }
+    },
+  };
 
   const stats = byId('stats');
   const stepper = new FixedStepper(world.config.tickRate);
@@ -138,6 +213,7 @@ async function start(): Promise<void> {
     const due = stepper.advance(elapsed);
     for (let i = 0; i < due; i++) {
       view.rememberPositions();
+      redGeneral();
       const before = performance.now();
       session.step();
       simMs += performance.now() - before;
@@ -145,9 +221,10 @@ async function start(): Promise<void> {
     }
     const dt = Math.min(0.1, elapsed / 1000);
     controls.update(dt, stepper.alpha);
-    view.render(stepper.alpha, dt, controls.selected);
+    view.render(stepper.alpha, dt, controls.watched());
     minimap.draw(controls.selected);
     showStores();
+    judge();
 
     frames++;
     if (now - windowStart >= 500) {

@@ -1,7 +1,7 @@
 // Renders sample-sheet.html in headless Chromium and saves screenshots for review.
 // The page is wrapped the way the publisher wraps it; CDN scripts are served from node_modules.
 //   node scripts/screenshot.mjs                    everything
-//   node scripts/screenshot.mjs scene              one section: pages, closeups, icons, scene, village
+//   node scripts/screenshot.mjs scene              one section: pages, closeups, icons, scene, village, units
 //   node scripts/screenshot.mjs view <id> <yaw> <pitch> [name]    one card from one angle
 //   node scripts/screenshot.mjs review [id ...]    each building on its plot from four sides
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
@@ -18,6 +18,9 @@ mkdirSync(shots, { recursive: true });
 
 const only = process.argv.slice(2); // optional list of shot names to limit the run
 const want = (name) => only.length === 0 || only.includes(name);
+
+const manifest = JSON.parse(readFileSync(join(root, 'models', 'manifest.json'), 'utf8'));
+const units = manifest.filter((m) => m.clips.length);
 
 const content = readFileSync(join(root, 'sample-sheet.html'), 'utf8');
 const wrapped = `<!doctype html><html><head><meta charset="utf-8">
@@ -50,9 +53,9 @@ async function open({ width, height = 900, scheme = 'light', scale = 2 }) {
   await page.goto(pathToFileURL(previewPath).href, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('html[data-models-ready]', { timeout: 30000 });
   // Freeze animation so stills are repeatable, then let every viewer draw.
-  await page.evaluate(() => {
-    for (const id of ['spearman', 'villager']) window.__sheet.pose(id, '', 0);
-  });
+  await page.evaluate((ids) => {
+    for (const id of ids) window.__sheet.pose(id, '', 0);
+  }, units.map((m) => m.id));
   await settle(page);
   return { ctx, page };
 }
@@ -82,7 +85,7 @@ async function cardShot(page, id, name) {
 
 /**
  * A page that sets `items` out on the game's grass, with tile lines every 2 m.
- *   items     [{ id, x, z, rot?, scale?, team? }]
+ *   items     [{ id, x, z, rot?, scale?, team?, clip?, time? }]; a clip is held at that time
  *   outlines  [{ x, z, half, color? }] squares drawn on the ground, such as a building plot
  * It exposes window.__scene, a promise of render(views). A view is { x, z, distance } with
  * optional pitch, yaw, fov and rect ([left, top, width, height] as shares of the canvas, for
@@ -136,7 +139,12 @@ window.__scene = (async function () {
     });
   }
   for (var k = 0; k < ITEMS.length; k++) {
-    var it = ITEMS[k], model = (await parse(it.id)).scene;
+    var it = ITEMS[k], gltf = await parse(it.id), model = gltf.scene;
+    if (it.clip) {
+      var mixer = new THREE.AnimationMixer(model);
+      mixer.clipAction(gltf.animations.filter(function (c) { return c.name === it.clip; })[0]).play();
+      mixer.setTime(it.time || 0);
+    }
     model.traverse(function (o) {
       if (!o.isMesh) return;
       o.castShadow = o.receiveShadow = true;
@@ -198,7 +206,6 @@ async function openScene(items, outlines, viewport = { width: 1600, height: 1000
 
 // How far a vertex may be from the middle of a plot of that many tiles: see src/build.mjs.
 const PLOT_LIMIT = { 3: 2.85, 5: 4.7 };
-const manifest = JSON.parse(readFileSync(join(root, 'models', 'manifest.json'), 'utf8'));
 const plotOf = Object.fromEntries(manifest.filter((m) => m.plot).map((m) => [m.id, m.plot]));
 /** The plot of a building at x, z as two squares: the tiles it takes, and the limit inside them. */
 const plotOutlines = (id, x = 0, z = 0) => [
@@ -212,12 +219,14 @@ const plotOutlines = (id, x = 0, z = 0) => [
 async function reviews(ids) {
   for (const id of ids) {
     if (!plotOf[id]) throw new Error(`${id} has no plot in models/manifest.json`);
-    const half = plotOf[id], d = half * 5.6;
+    // Stand far enough back for the plot, or for the model's height if that asks for more.
+    const half = plotOf[id], tall = manifest.find((m) => m.id === id).bounds.max[1];
+    const d = Math.max(half * 5.6, tall * 2.5), aim = Math.max(1, tall * 0.38);
     const scene = await openScene([{ id, x: 0, z: 0 }, { id: 'villager', x: half + 1, z: half - 1, rot: -0.6 }], plotOutlines(id), { width: 1800, height: 1300 });
     await scene.shot(`review-${id}`, [
-      { x: 0, z: 0.2, y: 0.8, distance: d * 1.06, rect: [0, 0, 0.5, 0.5] },
-      { x: 0, z: 0, y: 1, distance: d, yaw: 0.65, pitch: 0.5, rect: [0.5, 0, 0.5, 0.5] },
-      { x: 0, z: 0, y: 1, distance: d, yaw: -0.75, pitch: 0.3, rect: [0, 0.5, 0.5, 0.5] },
+      { x: 0, z: 0.2, y: aim * 0.8, distance: d * 1.06, rect: [0, 0, 0.5, 0.5] },
+      { x: 0, z: 0, y: aim, distance: d, yaw: 0.65, pitch: 0.5, rect: [0.5, 0, 0.5, 0.5] },
+      { x: 0, z: 0, y: aim, distance: d, yaw: -0.75, pitch: 0.3, rect: [0, 0.5, 0.5, 0.5] },
       { x: 0, z: 0, distance: d * 1.05, pitch: 1.565, rect: [0.5, 0.5, 0.5, 0.5] },
     ]);
     await scene.close();
@@ -276,7 +285,7 @@ if (only.length === 0 || only.some((n) => n.startsWith('model') || n === 'closeu
   // The RTS view: the same models from a high camera.
   for (const id of ids) await page.evaluate((i) => window.__sheet.view(i, 0.6, 0.95), id);
   await settle(page);
-  for (const id of ['house', 'hall', 'barracks', 'lumber-camp', 'mill', 'mining-camp', 'keep', 'spearman', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
+  for (const id of ['house', 'hall', 'barracks', 'archery-range', 'stable', 'lumber-camp', 'mill', 'mining-camp', 'keep', 'watchtower', 'spearman', 'archer', 'horseman', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
     await cardShot(page, id, `model-${id}-high`);
   }
   // Buildings square on from the front, which is how the game camera meets an unturned building.
@@ -286,11 +295,16 @@ if (only.length === 0 || only.some((n) => n.startsWith('model') || n === 'closeu
   }
   for (const id of ids) await page.evaluate((i) => window.__sheet.view(i, 0.55, 0.42), id);
 
-  // Animation stills.
+  // Animation stills, among them every striking clip at the moment the manifest says it lands.
   const poses = [
     ['spearman', 'walk', 0.22], ['spearman', 'walk', 0.62], ['spearman', 'attack', 0.4], ['spearman', 'attack', 0.52],
     ['villager', 'walk', 0.22], ['villager', 'chop', 0.36], ['villager', 'chop', 0.56],
+    ['archer', 'walk', 0.22], ['archer', 'attack', 0.3], ['archer', 'attack', 0.45], ['archer', 'attack', 1.25],
+    ['horseman', 'walk', 0.1], ['horseman', 'walk', 0.35], ['horseman', 'attack', 0.22],
   ];
+  for (const unit of units) {
+    for (const [clip, { hit }] of Object.entries(unit.timing)) if (hit !== undefined) poses.push([unit.id, clip, hit]);
+  }
   for (const [id, clip, t] of poses) {
     await page.evaluate(([i, c, time]) => window.__sheet.pose(i, c, time), [id, clip, t]);
     await cardShot(page, id, `model-${id}-${clip}-${String(t).replace('.', '_')}`);
@@ -327,6 +341,37 @@ if (want('scene') || only.length === 0) {
   // 47 m is a middling zoom; 190 m is as far out as the game camera goes.
   for (const [name, distance] of [['scene-game-view', 47], ['scene-game-view-far', 190]]) await scene.shot(name, [{ x: -1, z: 2.5, distance }]);
   await scene.close();
+}
+
+// The fighting units side by side from the game camera, some held in mid-stride or mid-blow,
+// so that the three can be told apart at a glance; then at the game's middling zoom among
+// the buildings that train them, each on its plot.
+if (want('scene') || want('units') || only.length === 0) {
+  const hit = (id) => manifest.find((m) => m.id === id).timing.attack.hit;
+  const items = [];
+  const row = (id, z, poses) => poses.forEach(([x, rot, clip, time], i) => items.push({ id, x, z: z + (i % 2) * 0.5, rot, clip, time }));
+  row('spearman', -3.2, [[-6.2, 0.2], [-4.6, -0.3, 'walk', 0.22], [-3.0, 0.5, 'attack', hit('spearman')], [-1.4, 2.6]]);
+  row('archer', -3.2, [[1.4, -0.2], [3.0, 0.4, 'walk', 0.22], [4.6, -0.5, 'attack', 0.45], [6.2, 2.4, 'attack', hit('archer')]]);
+  row('horseman', 2.0, [[-5.2, 0.5], [-1.9, -0.9, 'walk', 0.1], [1.9, 1.3, 'attack', hit('horseman')], [5.2, 2.7, 'walk', 0.35]]);
+  for (const [x, z, rot] of [[-7.4, 5.6, 0.6], [7.4, 5.4, -0.7]]) items.push({ id: 'villager', x, z, rot });
+  items.push({ id: 'spearman', x: -2.2, z: 6.0, rot: 2.9, team: '#b3312c' }, { id: 'archer', x: 0, z: 6.4, rot: 3.3, team: '#b3312c', clip: 'attack', time: 0.45 }, { id: 'horseman', x: 3.2, z: 6.2, rot: 3.6, team: '#b3312c' });
+  const scene = await openScene(items);
+  await scene.shot('scene-units', [{ x: 0, z: 1.2, distance: 24 }]);
+  await scene.shot('scene-units-game-zoom', [{ x: 0, z: 1.2, distance: 47 }]);
+  await scene.close();
+
+  const buildings = [
+    { id: 'barracks', x: -12, z: -8 }, { id: 'hall', x: 0, z: -8 }, { id: 'watchtower', x: 10, z: -10 },
+    { id: 'stable', x: -10, z: 6 }, { id: 'archery-range', x: 2, z: 6 }, { id: 'house', x: 12, z: 4 },
+  ];
+  const camp = [...buildings];
+  for (const [x, z, rot] of [[-13.6, -1.6, 0.3], [-12.2, -1.2, -0.2], [-10.8, -1.7, 0.1]]) camp.push({ id: 'spearman', x, z, rot });
+  for (const [x, z, rot, time] of [[7.2, -2.2, 0.2, 0], [8.6, -1.6, -0.3, 0.45], [10, -2.3, 0.4, 0]]) camp.push({ id: 'archer', x, z, rot, clip: 'attack', time });
+  for (const [x, z, rot, clip, time] of [[-3.4, -1.9, 1.2, 'walk', 0.1], [0.6, -1.4, -1.6, 'idle', 0], [15, 9.4, 0.9, 'walk', 0.35]]) camp.push({ id: 'horseman', x, z, rot, clip, time });
+  for (const [x, z, rot] of [[4.2, -1.8, 2.2], [-17, 3, -0.6]]) camp.push({ id: 'villager', x, z, rot });
+  const second = await openScene(camp, buildings.map(({ id, x, z }) => plotOutlines(id, x, z)[0]));
+  await second.shot('scene-military', [{ x: 0.5, z: -2, distance: 54 }]);
+  await second.close();
 }
 
 // A first-age village from the game camera: every building unturned on its own plot of 2 m

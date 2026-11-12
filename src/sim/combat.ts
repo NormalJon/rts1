@@ -18,7 +18,7 @@
  * the rider a blow from the spear.
  *
  * Whom a soldier goes after depends on its orders. Left alone it guards its
- * post: it fights what comes near and then walks back. Sent somewhere with an
+ * post: it fights what comes within eight tiles and then walks back. Sent somewhere with an
  * attack-move it fights whatever it meets on the way and then carries on.
  * Told simply to move, it ignores everything. Told to hold, it strikes only at
  * what comes within reach.
@@ -34,12 +34,12 @@ import { beginOrder, startNextOrder } from './routing';
 import { entityIndex, MoveState, NO_ENTITY, OrderKind, SHOT_FIELDS, type EntityId, type World } from './world';
 
 /** How far off a soldier notices an enemy: this, or a little past its own range if that is further. */
-const NOTICE: Fixed = 6 * ONE;
+const NOTICE: Fixed = 8 * ONE;
 const NOTICE_PAST_RANGE: Fixed = 2 * ONE;
 /** A guard does not go after anything further than this from its post. */
-const LEASH: Fixed = 9 * ONE;
+const LEASH: Fixed = 12 * ONE;
 /** A soldier on the march gives up on an enemy that gets this far from it. */
-const LOSE_INTEREST: Fixed = 12 * ONE;
+const LOSE_INTEREST: Fixed = 14 * ONE;
 /**
  * A blow or shot once begun still goes home if the target has drawn back no
  * more than this in the meantime. It is enough that running away never dodges
@@ -48,6 +48,8 @@ const LOSE_INTEREST: Fixed = 12 * ONE;
 const SLACK: Fixed = 3 * HALF;
 /** How many times a soldier that cannot get at its target tries again before looking for another. */
 const CHASE_TRIES = 3;
+/** How far a cry for help carries: soldiers this near someone who is hit come to their aid. */
+const HEARING: Fixed = 8 * ONE;
 /** A unit attacking a building stands this far clear of its wall. */
 const AT_THE_WALL: Fixed = ONE >> 4;
 
@@ -217,7 +219,8 @@ function disengage(world: World, slot: number): void {
 /**
  * The nearest enemy this unit's orders let it go after, or NO_ENTITY. Units
  * come before buildings, and only a unit sent out to attack goes for
- * buildings that cannot hurt it.
+ * buildings of its own accord. A guard leaves them alone unless one shoots at
+ * it, which hurt() deals with.
  */
 function acquire(world: World, slot: number, type: EntityType, kind: number): EntityId {
   const { map, cellStart, cellItems, owner, posX, posY, radius } = world;
@@ -258,11 +261,10 @@ function acquire(world: World, slot: number, type: EntityType, kind: number): En
   }
   if (best !== -1) return world.idAt(best);
 
-  const anyBuilding = kind === OrderKind.AttackMove || kind === OrderKind.Patrol;
+  if (kind !== OrderKind.AttackMove && kind !== OrderKind.Patrol) return NO_ENTITY;
   for (let i = 0; i < world.scratchBuildingCount; i++) {
     const other = world.scratchBuildings[i]!;
     if (!world.hostile(me, owner[other]!)) continue;
-    if (!anyBuilding && (world.built[other] === 0 || ENTITY_TYPES[world.entityType[other]!]!.damage === 0)) continue;
     const distance = distanceTo(world, px, py, other);
     if (distance > sight || (best !== -1 && distance >= bestDistance)) continue;
     if (!worthChasing(world, slot, other, kind, type)) continue;
@@ -451,25 +453,59 @@ function landShots(world: World): void {
   world.shotCount = kept;
 }
 
-/** Notes damage against a victim, and sets an idle soldier on whoever hit it. */
+/**
+ * Notes damage against a victim. The victim, and any soldiers of its side
+ * near enough to hear, turn on whoever did it if they have nothing better to
+ * do: so a guard answers when the villagers beside it are cut down, and a
+ * whole company goes for the tower that shoots one of them.
+ */
 function hurt(world: World, victim: number, damage: number, attacker: EntityId): void {
   world.scratchDamage[victim] = world.scratchDamage[victim]! + damage;
-  if (world.mobile[victim] === 0 || world.engaged[victim] === 1 || world.windup[victim]! > 0) return;
-  const type = ENTITY_TYPES[world.entityType[victim]!]!;
-  if (!type.aggressive) return;
-  const kind = world.orderKind[victim]!;
-  if (kind !== OrderKind.None && kind !== OrderKind.AttackMove && kind !== OrderKind.Patrol) return;
   if (!world.isAlive(attacker)) return;
   const from = entityIndex(attacker);
-  if (!world.hostile(world.owner[victim]!, world.owner[from]!)) return;
-  if (!worthChasing(world, victim, from, kind, type)) return;
+  const side = world.owner[victim]!;
+  if (!world.hostile(side, world.owner[from]!)) return;
+
+  const { map, cellStart, cellItems, posX, posY } = world;
+  const px = posX[victim]!;
+  const py = posY[victim]!;
+  const span = HEARING + ENTITY_TYPES[world.entityType[victim]!]!.footprint * HALF;
+  const columns = (map.width + 1) >> 1;
+  const rows = (map.height + 1) >> 1;
+  const x0 = Math.max(0, (px - span) >> CELL_SHIFT);
+  const x1 = Math.min(columns - 1, (px + span) >> CELL_SHIFT);
+  const y0 = Math.max(0, (py - span) >> CELL_SHIFT);
+  const y1 = Math.min(rows - 1, (py + span) >> CELL_SHIFT);
+  for (let cy = y0; cy <= y1; cy++) {
+    for (let cx = x0; cx <= x1; cx++) {
+      const cell = cy * columns + cx;
+      for (let i = cellStart[cell]!; i < cellStart[cell + 1]!; i++) {
+        const friend = cellItems[i]!;
+        if (world.engaged[friend] === 1 || world.windup[friend]! > 0) continue;
+        if (world.hostile(side, world.owner[friend]!)) continue;
+        const dx = posX[friend]! - px;
+        const dy = posY[friend]! - py;
+        if (dx > span || dx < -span || dy > span || dy < -span) continue;
+        respond(world, friend, from, attacker);
+      }
+    }
+  }
+}
+
+/** Sets a soldier with nothing better to do on an enemy who has just hit it or someone near it. */
+function respond(world: World, slot: number, from: number, attacker: EntityId): void {
+  const type = ENTITY_TYPES[world.entityType[slot]!]!;
+  if (!type.aggressive) return;
+  const kind = world.orderKind[slot]!;
+  if (kind !== OrderKind.None && kind !== OrderKind.AttackMove && kind !== OrderKind.Patrol) return;
+  if (!worthChasing(world, slot, from, kind, type)) return;
   if (!type.ranged && world.mobile[from] === 1) {
     // Shot at from across the river: there is nothing a soldier on foot can do about it.
     const { map } = world;
-    const here = map.region[map.tileAt(world.posX[victim]!, world.posY[victim]!)];
+    const here = map.region[map.tileAt(world.posX[slot]!, world.posY[slot]!)];
     if (map.region[map.tileAt(world.posX[from]!, world.posY[from]!)] !== here) return;
   }
-  engage(world, victim, attacker);
+  engage(world, slot, attacker);
 }
 
 // ---- Buildings ---------------------------------------------------------------

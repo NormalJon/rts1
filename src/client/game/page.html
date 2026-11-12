@@ -93,8 +93,12 @@
   #toast { position: absolute; left: 50%; bottom: 168px; transform: translateX(-50%); padding: 7px 14px; font-size: 13.5px; max-width: min(92%, 520px); text-align: center; pointer-events: none; border-color: var(--warn); }
   #population.full { color: var(--warn); }
   #selection { font-size: 14px; font-weight: 500; min-width: 0; }
-  #btn-stop { display: inline-flex; align-items: center; gap: 7px; background: transparent; }
-  #btn-stop svg { width: 16px; height: 16px; }
+  #orders { display: flex; gap: 6px; flex: none; }
+  #orders button { display: inline-flex; align-items: center; gap: 6px; background: transparent; padding: 5px 9px; white-space: nowrap; }
+  #orders button[aria-pressed="true"] { border-color: var(--woad); color: var(--woad); }
+  #banner { position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%); padding: 18px 30px; text-align: center; pointer-events: none; }
+  #banner strong { display: block; font-family: var(--font-display); font-weight: 600; font-size: 1.7rem; letter-spacing: 0.02em; }
+  #banner span { color: var(--muted); font-size: 13.5px; }
   kbd { font-family: var(--font-data); font-size: 11px; color: var(--muted); border: 1px solid var(--panel-line); border-radius: 3px; padding: 0 4px; }
 
   #fatal { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 15px; background: var(--bg); color: var(--ink); }
@@ -106,6 +110,8 @@
     #minimap { width: 104px; height: 104px; }
     .bar { justify-self: stretch; align-items: stretch; min-width: 0; }
     .command { padding-left: 10px; min-width: 0; }
+    .command-head { flex-wrap: wrap; }
+    #orders { flex-wrap: wrap; }
     #toast { bottom: 190px; }
     button { padding: 7px 10px; }
   }
@@ -118,7 +124,7 @@
   <div class="hud">
     <div class="title">
       <div class="panel title-card">
-        <h1>Playtest<span class="wide"> · building and training</span></h1>
+        <h1>Playtest<span class="wide"> · combat</span></h1>
         <div id="stats">starting…</div>
       </div>
       <div id="production" aria-label="In training" hidden></div>
@@ -143,10 +149,13 @@
         <dt>drag</dt><dd>Select the units inside the box</dd>
         <dt>click</dt><dd>Select one; twice for all of its kind in view</dd>
         <dt>shift</dt><dd>Add to, or take from, the selection</dd>
-        <dt>right-click</dt><dd>Send them there. Villagers gather from a tree, bush, stone or gold, and build at a site. With a building selected, sets where its new units go</dd>
+        <dt>right-click</dt><dd>Send them there, or at an enemy to attack it. Villagers gather from a tree, bush, stone or gold, build at a site, and mend a damaged building. With a building selected, sets where its new units go</dd>
         <dt>shift + right</dt><dd>Add a waypoint</dd>
-        <dt>Q W E R T</dt><dd>With villagers: choose a building, then click where it goes. With a building: train a unit</dd>
-        <dt>S</dt><dd>Stop</dd>
+        <dt>A, click</dt><dd>Attack-move: march there, fighting whatever they meet</dd>
+        <dt>P, click</dt><dd>Patrol between here and there</dd>
+        <dt>H &nbsp;S</dt><dd>Hold ground (never give chase) · Stop</dd>
+        <dt>Q W E R…</dt><dd>With villagers: choose a building, then click where it goes. With a building: train a unit</dd>
+        <dt>F</dt><dd>Look at the last place you were attacked</dd>
         <dt>del</dt><dd>Pull down the selected building</dd>
         <dt>.</dt><dd>Jump to the next idle villager</dd>
         <dt>shift + 1–9</dt><dd>Save the selection as a group (ctrl works too, outside a browser tab)</dd>
@@ -156,7 +165,8 @@
         <dt>space</dt><dd>Jump to your selection</dd>
         <dt>esc</dt><dd>Clear the selection</dd>
       </dl>
-      <p>You lead the blue side, in the north-west. Put villagers to work, build a house before you run out of room, and a barracks to train spearmen. The red side works its own land across the river and will not fight until the game has an AI.</p>
+      <p><b>Spearmen</b> stop horsemen, <b>horsemen</b> ride down archers, <b>archers</b> shoot spearmen before they close. Soldiers left alone guard where they stand; a plain move ignores the enemy.</p>
+      <p>You lead the blue side, in the north-west. Red has no general yet: its villagers work, its guards and town centre defend, and a raiding party sets out for your town every minute and a half from the third minute, a little larger each time. Pull down its town centre to win.</p>
     </aside>
 
     <div class="map panel"><canvas id="minimap" aria-label="Map. Click to move the view; right-click to send the selection."></canvas></div>
@@ -169,10 +179,12 @@
       <div class="command panel">
         <div class="command-head">
           <span id="selection">Nothing selected</span>
-          <button type="button" id="btn-stop" hidden>
-            <svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><path fill-rule="evenodd" d="M10.6 3h10.8L29 10.6v10.8L21.4 29H10.6L3 21.4V10.6zM8.5 13.5v5h15v-5z"/></svg>
-            Stop <kbd>S</kbd>
-          </button>
+          <div id="orders" hidden>
+            <button type="button" id="btn-attack" aria-pressed="false" title="March there, fighting whatever they meet">Attack-move <kbd>A</kbd></button>
+            <button type="button" id="btn-patrol" aria-pressed="false" title="Walk to and fro between here and a point">Patrol <kbd>P</kbd></button>
+            <button type="button" id="btn-hold" title="Stand fast: strike what comes within reach, never give chase">Hold <kbd>H</kbd></button>
+            <button type="button" id="btn-stop">Stop <kbd>S</kbd></button>
+          </div>
         </div>
         <div id="progress" hidden><div id="progress-bar"></div></div>
         <div id="queue" hidden></div>
@@ -182,6 +194,7 @@
   </div>
 
   <div id="toast" class="panel" role="status" hidden></div>
+  <div id="banner" class="panel" role="status" hidden><strong></strong><span></span></div>
   <div id="fatal" hidden></div>
 </div>
 <!-- LIBRARIES -->

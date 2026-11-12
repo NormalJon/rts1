@@ -51,4 +51,10 @@ export const C = {
   loam: '#5f4d38',
   leaf: '#5d8a3f',
   barkSlab: '#74624f',
+  yew: '#c7a46c',
+  bay: '#7b5234',
+  bayDark: '#3a2a20',
+  dun: '#b79c6c',
+  hoof: '#2a2521',
+  water: '#5d7f8c',
 };

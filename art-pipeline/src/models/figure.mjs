@@ -6,8 +6,11 @@ import { C } from '../palette.mjs';
 
 const HIP_Y = 0.92;
 
-/** Create the joint hierarchy with an empty MeshBuilder on each part. */
-export function makeRig(seed, { itemL = null, itemR = null } = {}) {
+/**
+ * Create the joint hierarchy with an empty MeshBuilder on each part. With `turn` the whole
+ * figure can swing about its own axis in a clip, as an archer does to stand side on.
+ */
+export function makeRig(seed, { itemL = null, itemR = null, turn = false } = {}) {
   let s = seed;
   const part = (name, translation, children = []) => ({ name, translation, mb: new MeshBuilder(s++), children });
   const rig = {};
@@ -25,6 +28,7 @@ export function makeRig(seed, { itemL = null, itemR = null } = {}) {
   rig.torso = part('torso', [0, 0.06, 0], [rig.head, rig.armL, rig.armR]);
   rig.hips = part('hips', [0, HIP_Y, 0], [rig.torso, rig.legL, rig.legR]);
   rig.root = { name: 'root', children: [rig.hips] };
+  rig.turn = turn;
   return rig;
 }
 
@@ -62,41 +66,67 @@ export function leg(thigh, shin, { hose, wraps }) {
 
 const TAU = Math.PI * 2;
 
+/** A joint angle as a rotation: a number is a pitch about X, an array is [pitch, yaw, roll]. */
+export const jointQuat = (v) => (Array.isArray(v) ? qEuler(v[0], v[1] ?? 0, v[2] ?? 0) : qEuler(v, 0, 0));
+
 /**
  * Build a clip from a pose function. pose(t) returns angles in radians for time t:
- *   { hips:[dx,dy,dz], torso:[pitch,yaw], head, armL, armR, legL, shinL, legR, shinR, itemR }
- * Every clip keys every animated joint, so switching clips never leaves a stale pose.
+ *   { hips:[dx,dy,dz], torso:[pitch,yaw], head, armL, armR, legL, shinL, legR, shinR, itemR, turn }
+ * An arm or item angle may also be [pitch, yaw, roll]. Every clip keys every animated joint,
+ * so switching clips never leaves a stale pose.
+ * `extra` adds channels for parts beyond the figure: [{ part, path, value(pose, t), times? }].
+ * Its poses may carry further keys of their own; with its own `times` a channel can jump
+ * between two closely spaced keys instead of gliding.
  */
-export function clip(rig, name, times, pose) {
-  const P = times.map((t) => ({
-    hips: [0, 0, 0], torso: [0, 0], head: 0, armL: 0, armR: 0, legL: 0, shinL: 0, legR: 0, shinR: 0, itemR: 0,
+export function clip(rig, name, times, pose, extra = []) {
+  const at = (t) => ({
+    hips: [0, 0, 0], torso: [0, 0], head: 0, armL: 0, armR: 0, legL: 0, shinL: 0, legR: 0, shinR: 0, itemR: 0, turn: 0,
     ...pose(t),
-  }));
+  });
+  const P = times.map(at);
   const rot = (part, f) => ({ node: part.node, path: 'rotation', times, values: P.map(f) });
   const channels = [
     { node: rig.hips.node, path: 'translation', times, values: P.map((p) => [p.hips[0], HIP_Y + p.hips[1], p.hips[2]]) },
     rot(rig.torso, (p) => qEuler(p.torso[0], p.torso[1], 0)),
     rot(rig.head, (p) => qEuler(0, p.head, 0)),
-    rot(rig.armL, (p) => qEuler(p.armL, 0, 0)),
-    rot(rig.armR, (p) => qEuler(p.armR, 0, 0)),
+    rot(rig.armL, (p) => jointQuat(p.armL)),
+    rot(rig.armR, (p) => jointQuat(p.armR)),
     rot(rig.legL, (p) => qEuler(p.legL, 0, 0)),
     rot(rig.shinL, (p) => qEuler(p.shinL, 0, 0)),
     rot(rig.legR, (p) => qEuler(p.legR, 0, 0)),
     rot(rig.shinR, (p) => qEuler(p.shinR, 0, 0)),
   ];
-  if (rig.itemR) channels.push(rot(rig.itemR, (p) => qEuler(p.itemR, 0, 0)));
+  if (rig.itemR) channels.push(rot(rig.itemR, (p) => jointQuat(p.itemR)));
+  if (rig.turn) channels.push(rot(rig.hips, (p) => qEuler(0, p.turn, 0)));
+  for (const e of extra) {
+    const ts = e.times ?? times;
+    channels.push({ node: e.part.node, path: e.path, times: ts, values: ts.map((t) => e.value(at(t), t)) });
+  }
   return { name, channels };
 }
 
-const samples = (duration, n) => Array.from({ length: n + 1 }, (_, i) => +((duration * i) / n).toFixed(4));
+/**
+ * A clip for any hierarchy of rigid parts: pose(t) returns whatever numbers the rig needs,
+ * and each binding { part, path, value(pose, t) } turns them into one channel.
+ */
+export function sampledClip(name, times, pose, bindings) {
+  const P = times.map(pose);
+  return { name, channels: bindings.map((b) => ({ node: b.part.node, path: b.path, times, values: P.map((p, i) => b.value(p, times[i])) })) };
+}
 
-/** Breathing and a slow look around. itemRest is the held item's resting tilt. */
-export function idleClip(rig, itemRest = 0) {
+/** n + 1 evenly spaced sample times from 0 to `duration`. */
+export const samples = (duration, n) => Array.from({ length: n + 1 }, (_, i) => +((duration * i) / n).toFixed(4));
+
+/**
+ * Breathing and a slow look around. itemRest is the held item's resting tilt. `also(pose, t)`
+ * returns changes to the pose, and `extra` is passed on to clip().
+ */
+export function idleClip(rig, itemRest = 0, { also = null, extra = [] } = {}) {
   const D = 3.2;
   return clip(rig, 'idle', samples(D, 16), (t) => {
     const p = (t / D) * TAU;
     const armR = 0.03 * Math.sin(p + 1);
-    return {
+    const pose = {
       hips: [0, 0.004 * Math.sin(p), 0],
       torso: [0.014 * Math.sin(p), 0.03 * Math.sin(p * 0.5)],
       head: 0.2 * Math.sin(p),
@@ -104,16 +134,17 @@ export function idleClip(rig, itemRest = 0) {
       armR,
       itemR: itemRest - armR,
     };
-  });
+    return also ? { ...pose, ...also(pose, t) } : pose;
+  }, extra);
 }
 
-export function walkClip(rig, itemRest = 0) {
+export function walkClip(rig, itemRest = 0, { also = null, extra = [] } = {}) {
   const D = 0.9, A = 0.5, K = 0.95;
   return clip(rig, 'walk', samples(D, 16), (t) => {
     const p = (t / D) * TAU;
     const s = Math.sin(p), c = Math.cos(p);
     const armR = -0.1 * s;
-    return {
+    const pose = {
       hips: [0, -0.016 * (1 - Math.cos(2 * p)), 0],
       torso: [0.04, 0.07 * s],
       head: -0.05 * s,
@@ -125,22 +156,38 @@ export function walkClip(rig, itemRest = 0) {
       armR,
       itemR: itemRest - armR + 0.05,
     };
-  });
+    return also ? { ...pose, ...also(pose, t) } : pose;
+  }, extra);
 }
 
-/** Interpolate between hand-set key poses, then sample evenly so playback is smooth. */
-export function keyedClip(rig, name, keys, n = 20) {
-  const D = keys[keys.length - 1].t;
+/**
+ * A pose function that eases between hand-set key poses, [{ t, ...angles }]. Keys may hold
+ * any numbers or arrays of numbers, as long as every key holds the same ones. The key marked
+ * `hit: true` is the instant the blow lands or the arrow leaves.
+ */
+export function keyframes(keys) {
   const smooth = (x) => x * x * (3 - 2 * x);
   const mix = (a, b, k) => (Array.isArray(a) ? a.map((v, i) => v + (b[i] - v) * k) : a + (b - a) * k);
-  return clip(rig, name, samples(D, n), (t) => {
+  return (t) => {
     let i = 0;
     while (i < keys.length - 2 && t > keys[i + 1].t) i++;
     const a = keys[i], b = keys[i + 1];
     const k = smooth(Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t))));
     const out = {};
-    for (const key of Object.keys(a)) if (key !== 't') out[key] = mix(a[key], b[key], k);
+    for (const key of Object.keys(a)) if (key !== 't' && key !== 'hit') out[key] = mix(a[key], b[key], k);
     return out;
-  });
+  };
+}
+
+/** The time of the key marked `hit: true`, or undefined. */
+export const hitTime = (keys) => keys.find((k) => k.hit)?.t;
+
+/** Interpolate between hand-set key poses, then sample evenly so playback is smooth. */
+export function keyedClip(rig, name, keys, n = 20, extra = []) {
+  const D = keys[keys.length - 1].t;
+  const out = clip(rig, name, samples(D, n), keyframes(keys), extra);
+  const hit = hitTime(keys);
+  if (hit !== undefined) out.hit = hit;
+  return out;
 }
 

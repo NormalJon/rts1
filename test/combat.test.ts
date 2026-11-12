@@ -197,16 +197,16 @@ describe('a soldier left to itself', () => {
     expect(hp(world, guard)).toBe(80); // villagers do not fight back unless told to
   });
 
-  it('does not notice an enemy further off than six tiles', () => {
+  it('does not notice an enemy further off than eight tiles', () => {
     const world = flatWorld();
     const guard = place(world, 0, S, 10, 20);
-    place(world, 1, V, 17, 20);
+    place(world, 1, V, 19, 20);
     run(world, 200);
     expect(distanceTo(world, guard, 10, 20)).toBe(0);
     expect(world.target[slotOf(guard)]).toBe(NO_ENTITY);
   });
 
-  it('gives up the chase nine tiles from its post and comes home', () => {
+  it('gives up the chase twelve tiles from its post and comes home', () => {
     const world = flatWorld(60);
     const guard = place(world, 0, S, 10, 30);
     // A rider trots past and away, too fast to catch.
@@ -221,21 +221,49 @@ describe('a soldier left to itself', () => {
     });
     expect(chased).toBe(true);
     expect(furthest).toBeGreaterThan(1);
-    expect(furthest).toBeLessThan(10);
+    expect(furthest).toBeLessThan(13);
     expect(distanceTo(world, guard, 10, 30)).toBeLessThan(0.1);
     expect(world.isAlive(rider)).toBe(true);
   });
 
-  it('turns on whoever hits it from beyond its notice', () => {
+  it('closes with an archer that comes up and shoots at it', () => {
     const world = flatWorld();
     const guard = place(world, 0, S, 10, 20);
-    const archer = place(world, 1, A, 21, 20);
-    // The archer walks up and shoots from five tiles, where the spearman would not have looked.
+    const archer = place(world, 1, A, 24, 20);
     send(world, 1, { kind: 'attack', units: [archer], target: guard });
     run(world, 1500, () => !world.isAlive(archer) || !world.isAlive(guard));
     // It closes with the archer and gets some blows in before it falls.
     expect(world.isAlive(guard)).toBe(false);
     expect(hp(world, archer)).toBeLessThan(60);
+  });
+
+  it('comes to the aid of a building of its side attacked beyond its notice, then goes home', () => {
+    const world = flatWorld(48);
+    const guard = place(world, 0, S, 11.5, 20.5);
+    world.spawnBuilding(0, Kind.House, 20, 20);
+    // The raider comes at the house from the far side, ten tiles from the guard.
+    const raider = place(world, 1, S, 30, 20.5);
+    send(world, 1, { kind: 'attack', units: [raider], target: world.livingEntities(0)[1]! });
+    let wentOut = 0;
+    run(world, 2400, () => {
+      wentOut = Math.max(wentOut, distanceTo(world, guard, 11.5, 20.5));
+      return !world.isAlive(raider);
+    });
+    expect(world.isAlive(raider)).toBe(false);
+    expect(wentOut).toBeGreaterThan(5);
+    run(world, 600, () => atRest(world, guard));
+    expect(distanceTo(world, guard, 11.5, 20.5)).toBeLessThan(0.1);
+  });
+
+  it('does not hear a cry for help from further off than eight tiles', () => {
+    const world = flatWorld(48);
+    const guard = place(world, 0, S, 8.5, 20.5);
+    const house = world.spawnBuilding(0, Kind.House, 20, 20);
+    const raider = place(world, 1, S, 30, 20.5);
+    send(world, 1, { kind: 'attack', units: [raider], target: house });
+    run(world, 600, () => hp(world, house) < 380);
+    expect(hp(world, house)).toBeLessThan(380);
+    expect(distanceTo(world, guard, 8.5, 20.5)).toBe(0);
   });
 
   it('is not a soldier if it is a villager: it ignores enemies and does not hit back', () => {
@@ -461,7 +489,7 @@ describe('arrows', () => {
     expect(hp(world, archer)).toBe(60);
   });
 
-  it('are not wasted on a soldier across the river by one who cannot reach him', () => {
+  it('a spearman does not go after a soldier across the river whom he cannot reach', () => {
     const rows = Array.from({ length: 20 }, () => '..........~~..........');
     const world = worldFrom(rows);
     const spear = place(world, 0, S, 8.5, 10.5);

@@ -35,6 +35,7 @@ const PAGES = {
     optionalModels: [
       'hall', 'house', 'mill', 'lumber-camp', 'mining-camp', 'barracks',
       'berry-bush', 'stone-deposit', 'gold-deposit',
+      'archer', 'horseman', 'archery-range', 'stable', 'watchtower',
     ],
   },
 };

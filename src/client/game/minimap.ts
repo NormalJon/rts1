@@ -20,7 +20,10 @@ const TERRAIN_RGB: Record<number, [number, number, number]> = {
   [Terrain.Gold]: [226, 186, 60],
 };
 
+const PING_MS = 3600;
+
 export class Minimap {
+  private readonly pings: { x: number; y: number; born: number }[] = [];
   private readonly ctx: CanvasRenderingContext2D;
   private readonly terrain: HTMLCanvasElement;
   private readonly paint: CanvasRenderingContext2D;
@@ -79,6 +82,11 @@ export class Minimap {
     canvas.addEventListener('contextmenu', (event) => event.preventDefault());
   }
 
+  /** Flashes a ring on the map, to draw the eye to a place. */
+  ping(x: number, y: number): void {
+    this.pings.push({ x, y, born: performance.now() });
+  }
+
   /** Repaints one tile after its terrain has changed. */
   repaintTile(tile: number): void {
     const { map } = this.world;
@@ -114,6 +122,23 @@ export class Minimap {
       // Buildings show as a square the size of their footprint.
       const side = world.mobile[slot] === 1 ? dot : Math.max(dot * 2, ENTITY_TYPES[world.entityType[slot]!]!.footprint * sx);
       ctx.fillRect(Math.round(x - side / 2), Math.round(y - side / 2), Math.round(side), Math.round(side));
+    }
+
+    const now = performance.now();
+    for (let i = this.pings.length - 1; i >= 0; i--) {
+      const ping = this.pings[i]!;
+      const age = (now - ping.born) / PING_MS;
+      if (age >= 1) {
+        this.pings.splice(i, 1);
+        continue;
+      }
+      // Three quick rings closing in on the spot.
+      const pulse = (age * 3) % 1;
+      ctx.strokeStyle = `rgba(255, 214, 120, ${(1 - age).toFixed(3)})`;
+      ctx.lineWidth = Math.max(1.5, ratio * 1.5);
+      ctx.beginPath();
+      ctx.arc(ping.x * sx, ping.y * sy, (3 + (1 - pulse) * 14) * ratio, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     const corners = this.view.viewCorners();

@@ -91,6 +91,28 @@ export function qEuler(x = 0, y = 0, z = 0) {
   return [q[0] / l, q[1] / l, q[2] / l, q[3] / l];
 }
 
+export const qConj = (q) => [-q[0], -q[1], -q[2], q[3]];
+/** Rotate vector v by unit quaternion q. */
+export function qRotate(q, v) {
+  const p = qMul(qMul(q, [v[0], v[1], v[2], 0]), qConj(q));
+  return [p[0], p[1], p[2]];
+}
+/** Spherical interpolation from a (k = 0) to b (k = 1) by the shorter way. */
+export function qSlerp(a, b, k) {
+  let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  const e = d < 0 ? b.map((n) => -n) : b;
+  d = Math.abs(d);
+  let wa = 1 - k, wb = k;
+  if (d < 0.9995) {
+    const th = Math.acos(d), s = Math.sin(th);
+    wa = Math.sin((1 - k) * th) / s;
+    wb = Math.sin(k * th) / s;
+  }
+  const q = [a[0] * wa + e[0] * wb, a[1] * wa + e[1] * wb, a[2] * wa + e[2] * wb, a[3] * wa + e[3] * wb];
+  const l = Math.hypot(q[0], q[1], q[2], q[3]);
+  return q.map((n) => n / l);
+}
+
 /** Rotation matrix of a unit quaternion. */
 export function qMatrix([x, y, z, w]) {
   return [

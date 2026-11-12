@@ -25,6 +25,108 @@
       "walk",
       "attack"
     ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.9
+      },
+      "attack": {
+        "duration": 1.1,
+        "hit": 0.5
+      }
+    },
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "archer",
+    "group": "units",
+    "label": "Archer",
+    "note": "Unarmoured bowman: tunic, coif and cap, back quiver, a self bow that bends as it is drawn. The arrow leaves at 0.5 s.",
+    "file": "models/archer.glb",
+    "triangles": 361,
+    "bytes": 71792,
+    "bounds": {
+      "min": [
+        -0.38,
+        0,
+        -0.705
+      ],
+      "max": [
+        0.484,
+        1.85,
+        0.705
+      ]
+    },
+    "yaw": 0.55,
+    "clips": [
+      "idle",
+      "walk",
+      "attack"
+    ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.9
+      },
+      "attack": {
+        "duration": 1.5,
+        "hit": 0.5
+      }
+    },
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "horseman",
+    "group": "units",
+    "label": "Horseman",
+    "note": "Light Norman rider: nasal helm, mail, kite shield, a lance with a pennon. Horse and rider are 20 rigid parts; the canter covers 2.4 m a loop.",
+    "file": "models/horseman.glb",
+    "triangles": 618,
+    "bytes": 98992,
+    "bounds": {
+      "min": [
+        -0.41,
+        0.016,
+        -1.121
+      ],
+      "max": [
+        0.697,
+        3.97,
+        1.189
+      ]
+    },
+    "yaw": -0.7,
+    "clips": [
+      "idle",
+      "walk",
+      "attack"
+    ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.5
+      },
+      "attack": {
+        "duration": 1.6,
+        "hit": 0.4
+      }
+    },
     "validator": {
       "errors": 0,
       "warnings": 0,
@@ -58,6 +160,18 @@
       "walk",
       "chop"
     ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.9
+      },
+      "chop": {
+        "duration": 1.1,
+        "hit": 0.54
+      }
+    },
     "validator": {
       "errors": 0,
       "warnings": 0,
@@ -143,6 +257,66 @@
         4.58,
         4.739,
         4.632
+      ]
+    },
+    "plot": 5,
+    "yaw": -0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "archery-range",
+    "group": "buildings",
+    "label": "Archery range",
+    "note": "Three straw butts before a turf bank, a thatched shelter for the bows and an open, fenced yard to shoot down. Trains archers on a 5 by 5 tile plot.",
+    "file": "models/archery-range.glb",
+    "triangles": 1295,
+    "bytes": 100156,
+    "bounds": {
+      "min": [
+        -4.58,
+        -0.062,
+        -4.62
+      ],
+      "max": [
+        4.58,
+        4,
+        4.588
+      ]
+    },
+    "plot": 5,
+    "yaw": -0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "stable",
+    "group": "buildings",
+    "label": "Stable",
+    "note": "Four open stalls under riven boards, and a railed paddock with a hay rick, a trough and a horse drinking at it. Trains horsemen on a 5 by 5 tile plot.",
+    "file": "models/stable.glb",
+    "triangles": 1048,
+    "bytes": 82728,
+    "bounds": {
+      "min": [
+        -4.555,
+        -0.012,
+        -4.627
+      ],
+      "max": [
+        4.555,
+        4.64,
+        4.495
       ]
     },
     "plot": 5,
@@ -286,7 +460,7 @@
       "min": [
         -2.25,
         -0.027,
-        -3.239
+        -2.76
       ],
       "max": [
         2.25,
@@ -294,6 +468,7 @@
         2.25
       ]
     },
+    "plot": 3,
     "yaw": 0.7,
     "clips": [],
     "validator": {

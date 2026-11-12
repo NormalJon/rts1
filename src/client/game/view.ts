@@ -7,10 +7,10 @@
  */
 
 import * as THREE from 'three';
-import { buildPointsNeeded, ENTITY_TYPES, resourceOfTerrain } from '../../sim/entityTypes';
+import { buildPointsNeeded, ENTITY_TYPES, resourceOfTerrain, ticksOf } from '../../sim/entityTypes';
 import { toFloat } from '../../sim/fixed';
 import { Terrain } from '../../sim/map';
-import { Job, type EntityId, type World } from '../../sim/world';
+import { Job, SHOT_FIELDS, type EntityId, type World } from '../../sim/world';
 import { BAKE_FPS, type BakedClip, type Models, type StaticModel, type UnitModel } from './models';
 
 /** Metres per tile. */
@@ -45,7 +45,15 @@ const PROP_HEIGHT: Record<number, number> = {
 };
 const BUILDING_HEIGHT = 6.5;
 
-const MARKER_COLOURS = { move: '#bfe38a', queue: '#e9c46a', work: '#f0d9a0' } as const;
+const MARKER_COLOURS = { move: '#bfe38a', queue: '#e9c46a', work: '#f0d9a0', attack: '#f08a7a' } as const;
+
+/** How long the fallen lie where they fell, and a ruin's bare plot shows, in seconds. */
+const FALLEN_SECONDS = 9;
+const RUIN_SECONDS = 12;
+const BAR_CAPACITY = 1024;
+const ARROW_CAPACITY = 512;
+/** Health bars: sound, hurt, and nearly gone. */
+const BAR_COLOURS = ['#7cc65a', '#e2b23c', '#dc5a45'].map((hex) => new THREE.Color(hex).convertSRGBToLinear());
 
 /** What a point on the screen is over. */
 export type Pick =
@@ -64,6 +72,25 @@ interface UnitBatch {
 interface Marker {
   readonly mesh: THREE.Mesh;
   born: number;
+}
+
+/** A soldier who has just been killed, shown toppling over and then lying there for a while. */
+interface Fallen {
+  readonly type: number;
+  readonly owner: number;
+  readonly x: number;
+  readonly y: number;
+  readonly yaw: number;
+  readonly born: number;
+}
+
+interface ShownBuilding {
+  readonly id: EntityId;
+  readonly group: THREE.Group;
+  readonly model: THREE.Group;
+  readonly plot: THREE.Mesh;
+  /** How high the finished model stands, in metres. */
+  readonly height: number;
 }
 
 interface Placement {
@@ -111,10 +138,14 @@ export class GameView {
   private readonly seenTerrain: Uint8Array;
   /** The tree, bush or outcrop standing on each resource tile. */
   private readonly propOfTile = new Map<number, { readonly meshes: THREE.InstancedMesh[]; readonly index: number }>();
-  private readonly buildings = new Map<
-    number,
-    { readonly id: EntityId; readonly group: THREE.Group; readonly model: THREE.Group; readonly plot: THREE.Mesh }
-  >();
+  private readonly buildings = new Map<number, ShownBuilding>();
+  /** Buildings that have just come down: their bare plots fade out. */
+  private readonly ruins: { readonly shown: ShownBuilding; readonly born: number }[] = [];
+  private readonly fallen: Fallen[] = [];
+  private readonly barBacks: THREE.InstancedMesh;
+  private readonly barFills: THREE.InstancedMesh;
+  private barCount = 0;
+  private readonly arrows: THREE.InstancedMesh;
   /** The plot shown under the pointer while choosing where to build. */
   private readonly ghost: THREE.Mesh;
   /** The outline round the selected building, and the flag at its rally point. */
@@ -128,7 +159,16 @@ export class GameView {
   private readonly yaw: Float32Array;
   private readonly animTime: Float32Array;
   private readonly clipOf: Uint8Array;
+  /** Who was last drawn in each slot (-1 for nobody), and where, to notice arrivals and deaths. */
+  private readonly shownId: Int32Array;
+  private readonly shownType: Uint8Array;
+  private readonly shownOwner: Uint8Array;
+  private readonly drawnX: Float32Array;
+  private readonly drawnY: Float32Array;
   private seconds = 0;
+  private readonly bodyMatrix = new THREE.Matrix4();
+  private readonly tiltMatrix = new THREE.Matrix4();
+  private readonly partMatrix = new THREE.Matrix4();
 
   constructor(canvas: HTMLCanvasElement, world: World, models: Models) {
     this.world = world;
@@ -162,6 +202,40 @@ export class GameView {
     this.yaw = new Float32Array(n);
     this.animTime = new Float32Array(n);
     this.clipOf = new Uint8Array(n);
+    this.shownId = new Int32Array(n).fill(-1);
+    this.shownType = new Uint8Array(n);
+    this.shownOwner = new Uint8Array(n);
+    this.drawnX = new Float32Array(n);
+    this.drawnY = new Float32Array(n);
+
+    // Health bars face the camera, which never turns, and draw over everything.
+    const barGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-PITCH);
+    this.barBacks = new THREE.InstancedMesh(
+      barGeometry,
+      new THREE.MeshBasicMaterial({ color: 0x10140f, transparent: true, opacity: 0.82, depthTest: false, depthWrite: false }),
+      BAR_CAPACITY,
+    );
+    this.barFills = new THREE.InstancedMesh(
+      barGeometry,
+      // Marked transparent only so that it is drawn after the backing, in the same pass.
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthTest: false, depthWrite: false }),
+      BAR_CAPACITY,
+    );
+    this.barFills.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BAR_CAPACITY * 3), 3);
+    this.barBacks.renderOrder = 8;
+    this.barFills.renderOrder = 9;
+    this.arrows = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.06, 0.06, 1.1),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color('#efe6cf') }),
+      ARROW_CAPACITY,
+    );
+    this.arrows.renderOrder = 4;
+    for (const mesh of [this.barBacks, this.barFills, this.arrows]) {
+      mesh.frustumCulled = false;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.count = 0;
+      this.scene.add(mesh);
+    }
 
     const shadowGeometry = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
     this.shadows = new THREE.InstancedMesh(
@@ -475,8 +549,23 @@ export class GameView {
     const { world } = this;
     for (const [slot, shown] of this.buildings) {
       if (world.isAlive(shown.id)) continue;
-      this.scene.remove(shown.group);
+      // Gone: the building vanishes and its bare plot lingers a while.
+      shown.model.visible = false;
+      shown.plot.visible = true;
+      this.ruins.push({ shown, born: this.seconds });
       this.buildings.delete(slot);
+    }
+    for (let i = this.ruins.length - 1; i >= 0; i--) {
+      const ruin = this.ruins[i]!;
+      const age = (this.seconds - ruin.born) / RUIN_SECONDS;
+      if (age < 1) {
+        (ruin.shown.plot.material as THREE.MeshLambertMaterial).opacity = 0.85 * (1 - age * age);
+        continue;
+      }
+      this.scene.remove(ruin.shown.group);
+      ruin.shown.plot.geometry.dispose();
+      (ruin.shown.plot.material as THREE.Material).dispose();
+      this.ruins.splice(i, 1);
     }
     for (let slot = 0; slot < world.highWater; slot++) {
       if (world.alive[slot] === 0 || world.mobile[slot] === 1) continue;
@@ -499,7 +588,8 @@ export class GameView {
           model.add(mesh);
         }
         // A model too big for its plot is shrunk to fit it.
-        model.scale.setScalar(Math.min(1, (span * 0.49) / source.reach));
+        const fit = Math.min(1, (span * 0.49) / source.reach);
+        model.scale.setScalar(fit);
         // Bare earth marks out the plot while the building goes up.
         const plot = new THREE.Mesh(
           new THREE.PlaneGeometry(span * 0.96, span * 0.96).rotateX(-Math.PI / 2),
@@ -513,7 +603,7 @@ export class GameView {
         const y = toFloat(world.posY[slot]!);
         group.position.set(x * TILE, this.heightAt(x, y), y * TILE);
         this.scene.add(group);
-        shown = { id: world.idAt(slot), group, model, plot };
+        shown = { id: world.idAt(slot), group, model, plot, height: source.height * fit };
         this.buildings.set(slot, shown);
       }
       // A building rises out of the ground as the work is done.
@@ -522,6 +612,13 @@ export class GameView {
       const width = shown.model.scale.x;
       shown.model.scale.y = width * (0.06 + 0.94 * done);
       shown.plot.visible = !finished;
+      // A bar over anything damaged, and over whatever is selected.
+      const type = ENTITY_TYPES[world.entityType[slot]!]!;
+      const picked = this.selectedBuilding === shown.id;
+      if (picked || (finished && world.hp[slot]! < type.hp)) {
+        const at = shown.group.position;
+        this.addBar(at.x, at.y + shown.height * (finished ? 1 : 0.5) + 0.9, at.z, type.footprint * 0.9, world.hp[slot]! / type.hp);
+      }
     }
 
     // The selected building's outline and rally flag.
@@ -620,16 +717,43 @@ export class GameView {
 
   private drawUnits(alpha: number, dt: number, selected: ReadonlySet<number>): void {
     const { world } = this;
-    const tickSeconds = 1 / world.config.tickRate;
+    const tickRate = world.config.tickRate;
+    const tickSeconds = 1 / tickRate;
+
+    // Anyone drawn last frame who is no longer alive has fallen.
+    for (let slot = 0; slot < this.shownId.length; slot++) {
+      const id = this.shownId[slot]!;
+      if (id === -1) {
+        if (slot >= world.highWater) break;
+        continue;
+      }
+      if (world.isAlive(id)) continue;
+      this.shownId[slot] = -1;
+      if (this.fallen.length < 600) {
+        this.fallen.push({
+          type: this.shownType[slot]!,
+          owner: this.shownOwner[slot]!,
+          x: this.drawnX[slot]!,
+          y: this.drawnY[slot]!,
+          yaw: this.yaw[slot]!,
+          born: this.seconds,
+        });
+      }
+    }
+    for (let i = this.fallen.length - 1; i >= 0; i--) {
+      if (this.seconds - this.fallen[i]!.born > FALLEN_SECONDS) this.fallen.splice(i, 1);
+    }
+
     const batchOfType: (UnitBatch | undefined)[] = [];
     for (const batch of this.batches) {
       batchOfType[batch.type] = batch;
       batch.count = 0;
-      let living = 0;
+      let wanted = 0;
       for (let slot = 0; slot < world.highWater; slot++) {
-        if (world.alive[slot] === 1 && world.entityType[slot] === batch.type) living++;
+        if (world.alive[slot] === 1 && world.entityType[slot] === batch.type) wanted++;
       }
-      if (living > batch.capacity) this.growBatch(batch, Math.max(living, batch.capacity * 2));
+      for (const body of this.fallen) if (body.type === batch.type) wanted++;
+      if (wanted > batch.capacity) this.growBatch(batch, Math.max(wanted, batch.capacity * 2));
     }
 
     const shadowArray = this.shadows.instanceMatrix.array as Float32Array;
@@ -639,17 +763,32 @@ export class GameView {
 
     for (let slot = 0; slot < world.highWater; slot++) {
       if (world.alive[slot] === 0) continue;
-      const batch = batchOfType[world.entityType[slot]!];
+      const typeId = world.entityType[slot]!;
+      const batch = batchOfType[typeId];
       if (batch === undefined) continue;
+      const type = ENTITY_TYPES[typeId]!;
       const curX = toFloat(world.posX[slot]!);
       const curY = toFloat(world.posY[slot]!);
+      const facing = Math.atan2(toFloat(world.dirX[slot]!), toFloat(world.dirY[slot]!));
+      const id = world.idAt(slot);
+      if (this.shownId[slot] !== id) {
+        // A newcomer in this slot: there is nowhere to blend from.
+        this.shownId[slot] = id;
+        this.shownType[slot] = typeId;
+        this.shownOwner[slot] = world.owner[slot]!;
+        this.prevX[slot] = curX;
+        this.prevY[slot] = curY;
+        this.yaw[slot] = facing;
+        this.clipOf[slot] = 255;
+      }
       const x = this.prevX[slot]! + (curX - this.prevX[slot]!) * alpha;
       const y = this.prevY[slot]! + (curY - this.prevY[slot]!) * alpha;
+      this.drawnX[slot] = x;
+      this.drawnY[slot] = y;
       const ground = this.heightAt(x, y);
       const radius = toFloat(world.radius[slot]!) * TILE;
 
       // Turn smoothly toward the simulation's facing.
-      const facing = Math.atan2(toFloat(world.dirX[slot]!), toFloat(world.dirY[slot]!));
       let turn = facing - this.yaw[slot]!;
       turn = Math.atan2(Math.sin(turn), Math.cos(turn));
       const maxTurn = 11 * dt;
@@ -659,17 +798,44 @@ export class GameView {
       const speed = Math.hypot(curX - this.prevX[slot]!, curY - this.prevY[slot]!) / tickSeconds;
       const nominal = toFloat(world.speed[slot]!) / tickSeconds;
       const walking = speed > nominal * 0.2;
-      // Villagers swing their axe at whatever they are gathering, for now.
-      const working = !walking && world.job[slot] === Job.Harvesting && batch.model.clips.has('chop');
-      const clipName = walking ? 'walk' : working ? 'chop' : 'idle';
-      const clipCode = walking ? 1 : working ? 2 : 0;
+      const clips = batch.model.clips;
+      let clipName = 'idle';
+      let clipCode = 0;
+      let frame = -1;
+      if (walking) {
+        clipName = 'walk';
+        clipCode = 1;
+      } else {
+        // A blow is drawn from the simulation's own count of it, so the spear
+        // lands on the tick the damage does, whatever the frame rate.
+        const strike = clips.has('attack') ? 'attack' : clips.has('chop') ? 'chop' : null;
+        const windup = world.windup[slot]!;
+        const cooldown = world.cooldown[slot]!;
+        if (strike !== null && type.damage > 0 && (windup > 0 || cooldown > 0)) {
+          const lead = ticksOf(type.windup, tickRate);
+          const rest = Math.max(1, ticksOf(type.cycle, tickRate) - lead);
+          const elapsed = (windup > 0 ? lead - windup : lead + rest - cooldown) - 1 + alpha;
+          const at = Math.floor(Math.max(0, elapsed) * tickSeconds * BAKE_FPS);
+          if (at < clips.get(strike)!.frames) {
+            clipName = strike;
+            clipCode = 3;
+            frame = at;
+          }
+        }
+        // Villagers swing their axe at whatever they are gathering or building, for now.
+        const job = world.job[slot];
+        if (frame === -1 && (job === Job.Harvesting || job === Job.Constructing) && clips.has('chop')) {
+          clipName = 'chop';
+          clipCode = 2;
+        }
+      }
       if (clipCode !== this.clipOf[slot]) {
         this.clipOf[slot] = clipCode;
         this.animTime[slot] = (slot * 0.37) % 1;
       }
       this.animTime[slot] = this.animTime[slot]! + dt * (walking ? Math.max(0.5, speed / nominal) : 1);
-      const clip = batch.model.clips.get(clipName)!;
-      const frame = Math.floor(this.animTime[slot]! * BAKE_FPS) % clip.frames;
+      const clip = clips.get(clipName)!;
+      if (frame === -1) frame = Math.floor(this.animTime[slot]! * BAKE_FPS) % clip.frames;
 
       const index = batch.count++;
       const cos = Math.cos(this.yaw[slot]!);
@@ -677,18 +843,35 @@ export class GameView {
       const px = x * TILE;
       const pz = y * TILE;
       this.placeParts(batch, clip, frame, index, cos, sin, px, ground, pz);
-      const team = this.teamLinear[world.owner[slot]! % this.teamLinear.length]!;
-      batch.meshes.forEach((mesh) => {
-        if (mesh.instanceColor !== null) {
-          const colours = mesh.instanceColor.array as Float32Array;
-          colours[index * 3] = team.r;
-          colours[index * 3 + 1] = team.g;
-          colours[index * 3 + 2] = team.b;
-        }
-      });
+      this.tint(batch, index, world.owner[slot]!);
 
       writeFlat(shadowArray, shadowCount++, px, ground + 0.04, pz, radius * 1.25);
-      if (selected.has(world.idAt(slot))) writeFlat(ringArray, ringCount++, px, ground + 0.07, pz, radius * 1.45);
+      const picked = selected.has(id);
+      if (picked) writeFlat(ringArray, ringCount++, px, ground + 0.07, pz, radius * 1.45);
+      const hp = world.hp[slot]!;
+      // Over the head, not over the tip of a spear or lance.
+      const head = Math.min(batch.model.height, type.charge > 0 ? 2.9 : 2.1);
+      if (picked || hp < type.hp) this.addBar(px, ground + head + 0.35, pz, Math.max(1, radius * 2.4), hp / type.hp);
+    }
+
+    // The fallen topple backward, lie a while, and sink into the ground.
+    for (const body of this.fallen) {
+      const batch = batchOfType[body.type];
+      if (batch === undefined || batch.count >= batch.capacity) continue;
+      const age = this.seconds - body.born;
+      const over = Math.min(1, age / 0.45);
+      const tilt = over * over * (3 - 2 * over) * (Math.PI / 2);
+      const sink = Math.max(0, age - (FALLEN_SECONDS - 3)) * 0.2;
+      this.bodyMatrix.makeRotationY(body.yaw).multiply(this.tiltMatrix.makeRotationX(-tilt));
+      this.bodyMatrix.setPosition(body.x * TILE, this.heightAt(body.x, body.y) + 0.1 * over - sink, body.y * TILE);
+      const index = batch.count++;
+      const clip = batch.model.clips.get('idle')!;
+      const parts = batch.meshes.length;
+      for (let part = 0; part < parts; part++) {
+        this.partMatrix.fromArray(clip.matrices, part * 16).premultiply(this.bodyMatrix);
+        this.partMatrix.toArray(batch.meshes[part]!.instanceMatrix.array as Float32Array, index * 16);
+      }
+      this.tint(batch, index, body.owner);
     }
 
     for (const batch of this.batches) {
@@ -702,6 +885,74 @@ export class GameView {
     this.shadows.instanceMatrix.needsUpdate = true;
     this.rings.count = ringCount;
     this.rings.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Gives one soldier's team-coloured parts his side's colour. */
+  private tint(batch: UnitBatch, index: number, owner: number): void {
+    const team = this.teamLinear[owner % this.teamLinear.length]!;
+    for (const mesh of batch.meshes) {
+      if (mesh.instanceColor === null) continue;
+      const colours = mesh.instanceColor.array as Float32Array;
+      colours[index * 3] = team.r;
+      colours[index * 3 + 1] = team.g;
+      colours[index * 3 + 2] = team.b;
+    }
+  }
+
+  /** Queues a health bar for this frame: centred on a point, so wide, and so full. */
+  private addBar(x: number, y: number, z: number, width: number, fraction: number): void {
+    if (this.barCount >= BAR_CAPACITY) return;
+    const full = Math.max(0, Math.min(1, fraction));
+    const index = this.barCount++;
+    writeBar(this.barBacks.instanceMatrix.array as Float32Array, index, x, y, z, width + 0.1, 0.22);
+    writeBar(this.barFills.instanceMatrix.array as Float32Array, index, x - (width * (1 - full)) / 2, y, z, width * full, 0.12);
+    const colour = BAR_COLOURS[full > 0.6 ? 0 : full > 0.3 ? 1 : 2]!;
+    (this.barFills.instanceColor!.array as Float32Array).set([colour.r, colour.g, colour.b], index * 3);
+  }
+
+  /** Draws every arrow in the air part-way along its arc. */
+  private drawArrows(alpha: number): void {
+    const { world } = this;
+    const { shots } = world;
+    const place = new THREE.Matrix4();
+    const turn = new THREE.Quaternion();
+    const at = new THREE.Vector3();
+    const ahead = new THREE.Vector3();
+    const behind = new THREE.Vector3();
+    const forward = new THREE.Vector3(0, 0, 1);
+    const one = new THREE.Vector3(1, 1, 1);
+    let count = 0;
+    for (let i = 0; i < world.shotCount && count < ARROW_CAPACITY; i++) {
+      const row = i * SHOT_FIELDS;
+      const target = shots[row + 3]!;
+      if (!world.isAlive(target)) continue;
+      const to = target & 0xfffff;
+      const source = shots[row + 2]!;
+      const fromTower = world.isAlive(source) && world.mobile[source & 0xfffff] === 0;
+      const fromX = toFloat(shots[row]!);
+      const fromY = toFloat(shots[row + 1]!);
+      const fromLift = this.heightAt(fromX, fromY) + (fromTower ? 5 : 1.5);
+      const mobile = world.mobile[to] === 1;
+      const toX = mobile ? this.drawnX[to]! : toFloat(world.posX[to]!);
+      const toY = mobile ? this.drawnY[to]! : toFloat(world.posY[to]!);
+      const toLift = this.heightAt(toX, toY) + (mobile ? 1.1 : 2.2);
+      const flight = Math.max(1, shots[row + 6]! - shots[row + 5]!);
+      const gone = Math.max(0, Math.min(1, (world.tick - 1 + alpha - shots[row + 5]!) / flight));
+      const arc = Math.min(3.2, Math.hypot(toX - fromX, toY - fromY) * TILE * 0.13);
+      const along = (t: number, out: THREE.Vector3): THREE.Vector3 =>
+        out.set(
+          (fromX + (toX - fromX) * t) * TILE,
+          fromLift + (toLift - fromLift) * t + Math.sin(Math.PI * t) * arc,
+          (fromY + (toY - fromY) * t) * TILE,
+        );
+      along(gone, at);
+      along(Math.min(1, gone + 0.04), ahead).sub(along(Math.max(0, gone - 0.04), behind));
+      if (ahead.lengthSq() < 1e-8) continue;
+      turn.setFromUnitVectors(forward, ahead.normalize());
+      this.arrows.setMatrixAt(count++, place.compose(at, turn, one));
+    }
+    this.arrows.count = count;
+    this.arrows.instanceMatrix.needsUpdate = true;
   }
 
   /** Writes one soldier's parts: his place in the world times each part's place in the model. */
@@ -914,9 +1165,16 @@ export class GameView {
     this.seconds += dt;
     this.resize();
     this.placeCamera();
+    this.barCount = 0;
     this.syncTerrain();
     this.syncBuildings();
     this.drawUnits(alpha, dt, selected);
+    this.drawArrows(alpha);
+    for (const bars of [this.barBacks, this.barFills]) {
+      bars.count = this.barCount;
+      bars.instanceMatrix.needsUpdate = true;
+    }
+    this.barFills.instanceColor!.needsUpdate = true;
     for (let i = this.markers.length - 1; i >= 0; i--) {
       const marker = this.markers[i]!;
       const age = (this.seconds - marker.born) / MARKER_SECONDS;
@@ -932,6 +1190,19 @@ export class GameView {
     }
     this.renderer.render(this.scene, this.camera);
   }
+}
+
+/** An upright bar facing the camera: so wide, so thick, at a point. */
+function writeBar(out: Float32Array, index: number, x: number, y: number, z: number, width: number, thick: number): void {
+  const o = index * 16;
+  out.fill(0, o, o + 16);
+  out[o] = width;
+  out[o + 5] = thick;
+  out[o + 10] = thick;
+  out[o + 12] = x;
+  out[o + 13] = y;
+  out[o + 14] = z;
+  out[o + 15] = 1;
 }
 
 /** A flat disc or ring lying on the ground: scale and position only. */

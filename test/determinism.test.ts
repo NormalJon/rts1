@@ -176,7 +176,7 @@ describe('determinism', () => {
     // deliberate, update the value here and in scripts/browser-check.mjs; old
     // replays will no longer play back.
     const { hashes } = playRandomMatch(config, 77, TICKS);
-    expect(hashHex(hashes[TICKS - 1]!)).toBe('2002f998');
+    expect(hashHex(hashes[TICKS - 1]!)).toBe('ab77540a');
   });
 });
 

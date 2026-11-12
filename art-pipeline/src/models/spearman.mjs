@@ -4,7 +4,7 @@ import { T, RX, RY } from '../math.mjs';
 import { C } from '../palette.mjs';
 import { makeRig, rigToNodes, arm, leg, idleClip, walkClip, keyedClip } from './figure.mjs';
 
-const KITE = [
+export const KITE = [
   [-0.28, 0.26], [-0.2, 0.39], [0, 0.44], [0.2, 0.39], [0.28, 0.26],
   [0.24, -0.1], [0.12, -0.45], [0, -0.68], [-0.12, -0.45], [-0.24, -0.1],
 ];
@@ -66,7 +66,7 @@ export function build() {
     { t: 0, ...rest },
     { t: 0.22, ...rest, hips: [0, -0.02, -0.02], torso: [0, -0.3], armR: 0.3, itemR: level(0.3, 0), legL: -0.15, legR: 0.1, head: 0.2 },
     { t: 0.4, ...rest, hips: [0, -0.03, -0.06], torso: [-0.05, -0.45], armR: 0.75, itemR: level(0.75, -0.05), legL: -0.2, legR: 0.15, head: 0.3 },
-    { t: 0.5, ...rest, hips: [0, -0.07, 0.22], torso: [0.2, 0.3], armL: -0.2, armR: -1.15, itemR: level(-1.15, 0.2), legL: -0.7, shinL: 0.6, legR: 0.5, shinR: 0.15, head: -0.15 },
+    { t: 0.5, hit: true, ...rest, hips: [0, -0.07, 0.22], torso: [0.2, 0.3], armL: -0.2, armR: -1.15, itemR: level(-1.15, 0.2), legL: -0.7, shinL: 0.6, legR: 0.5, shinR: 0.15, head: -0.15 },
     { t: 0.64, ...rest, hips: [0, -0.06, 0.2], torso: [0.18, 0.27], armL: -0.18, armR: -1.05, itemR: level(-1.05, 0.18), legL: -0.66, shinL: 0.56, legR: 0.46, shinR: 0.15, head: -0.15 },
     { t: 0.88, ...rest, hips: [0, -0.02, 0], torso: [0, -0.2], armR: 0.25, itemR: level(0.25, 0), legL: -0.1, legR: 0.05, head: 0.1 },
     { t: 1.1, ...rest },

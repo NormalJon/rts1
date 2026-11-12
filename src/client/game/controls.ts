@@ -12,12 +12,13 @@ import {
   ENTITY_TYPES,
   RESOURCE_NAMES,
   resourceOfTerrain,
+  Tag,
   TRAIN_QUEUE_LENGTH,
   trainingTicks,
 } from '../../sim/entityTypes';
 import { countPopulation } from '../../sim/production';
 import { fromFloat } from '../../sim/units';
-import { entityIndex, Job, MoveState, type EntityId } from '../../sim/world';
+import { entityIndex, Job, MoveState, OrderKind, type EntityId } from '../../sim/world';
 import type { LocalSession } from '../../session/localSession';
 import type { GameView } from './view';
 
@@ -27,9 +28,25 @@ const DOUBLE_CLICK_MS = 320;
 const PAN_PER_SECOND = 1.5;
 const TOAST_MS = 2400;
 /** The keys for the buttons in the action row, left to right. */
-const ACTION_KEYS = ['q', 'w', 'e', 'r', 't', 'y'];
+const ACTION_KEYS = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i'];
+/** How far from the middle of the view something must be hit before the player is told, in tiles. */
+const ALARM_DISTANCE = 22;
+const ALARM_EVERY_MS = 12000;
 
-const PLURALS: Record<string, string> = { spearman: 'spearmen', villager: 'villagers' };
+const PLURALS: Record<string, string> = { spearman: 'spearmen', horseman: 'horsemen' };
+/** What a weapon's bonus is against, in words, by tag. */
+const TAG_WORDS: [number, string][] = [
+  [Tag.Cavalry, 'horsemen'],
+  [Tag.Ranged, 'archers'],
+  [Tag.Spear, 'spearmen'],
+  [Tag.Building, 'buildings'],
+];
+const ORDER_WORDS: Record<number, string> = {
+  [OrderKind.AttackMove]: 'Marching to attack',
+  [OrderKind.Patrol]: 'On patrol',
+  [OrderKind.AttackTarget]: 'Attacking',
+  [OrderKind.Hold]: 'Holding ground',
+};
 const RESOURCE_VERBS = ['Foraging', 'Felling', 'Quarrying', 'Mining'];
 const RESOURCE_SOURCES = ['Berry bush', 'Tree', 'Stone outcrop', 'Gold ore'];
 
@@ -44,6 +61,11 @@ function costText(cost: readonly number[]): string {
 export interface Hud {
   readonly selection: HTMLElement;
   readonly groups: HTMLElement;
+  /** The row of orders for selected units: attack-move, patrol, hold, stop. */
+  readonly orders: HTMLElement;
+  readonly attackMove: HTMLButtonElement;
+  readonly patrol: HTMLButtonElement;
+  readonly hold: HTMLButtonElement;
   readonly stop: HTMLButtonElement;
   readonly idle: HTMLButtonElement;
   /** Build or train buttons for whatever is selected. */
@@ -64,8 +86,18 @@ export class Controls {
   private building: EntityId | null = null;
   /** A resource tile being looked at, or -1. */
   private inspectedTile = -1;
+  /** An enemy unit being looked at. */
+  private inspectedUnit: EntityId | null = null;
   /** The type of building being placed, while choosing where. */
   private placing: number | null = null;
+  /** An order waiting for the player to click where: the next click on the field gives it. */
+  private aiming: 'attackMove' | 'patrol' | null = null;
+  /** Hit points of the player's own things as last seen, to notice an attack, and where the last one was. */
+  private readonly hpSeen = new Map<EntityId, number>();
+  private alarmAt: { x: number; y: number } | null = null;
+  private alarmDue = 0;
+  /** Told where on the map the player's attention is wanted. */
+  onAlarm: ((x: number, y: number) => void) | null = null;
   private pointer: { x: number; y: number } | null = null;
 
   private readonly groups: EntityId[][] = Array.from({ length: 10 }, () => []);
@@ -117,6 +149,18 @@ export class Controls {
       this.stop();
       canvas.focus();
     });
+    hud.hold.addEventListener('click', () => {
+      this.hold();
+      canvas.focus();
+    });
+    hud.attackMove.addEventListener('click', () => {
+      this.aim('attackMove');
+      canvas.focus();
+    });
+    hud.patrol.addEventListener('click', () => {
+      this.aim('patrol');
+      canvas.focus();
+    });
     hud.idle.addEventListener('click', () => {
       this.selectIdleVillager();
       canvas.focus();
@@ -161,6 +205,8 @@ export class Controls {
     this.selected.clear();
     this.building = null;
     this.inspectedTile = -1;
+    this.inspectedUnit = null;
+    this.aiming = null;
     this.view.selectBuilding(null);
   }
 
@@ -168,8 +214,15 @@ export class Controls {
     if (!add) this.clearSelection();
     this.building = null;
     this.inspectedTile = -1;
+    this.inspectedUnit = null;
     this.view.selectBuilding(null);
     for (const id of ids) this.selected.add(id);
+  }
+
+  /** What the view should ring and show the health of: the selection, and any enemy being looked at. */
+  watched(): ReadonlySet<EntityId> {
+    if (this.inspectedUnit === null) return this.selected;
+    return new Set([...this.selected, this.inspectedUnit]);
   }
 
   private selectBuilding(id: EntityId): void {
@@ -207,12 +260,18 @@ export class Controls {
     }
     if (event.button === 2) {
       if (this.placing !== null) this.stopPlacing();
+      else if (this.aiming !== null) this.aim(null);
       else this.orderAt(event.clientX, event.clientY, event.shiftKey);
       return;
     }
     if (event.button !== 0) return;
     if (this.placing !== null) {
       this.placeAt(event.clientX, event.clientY, event.shiftKey);
+      return;
+    }
+    if (this.aiming !== null) {
+      const ground = this.view.screenToGround(event.clientX, event.clientY);
+      if (ground !== null) this.order(ground.x, ground.y, event.shiftKey);
       return;
     }
     this.dragStart = { x: event.clientX, y: event.clientY, id: event.pointerId };
@@ -271,15 +330,34 @@ export class Controls {
     this.box.hidden = true;
   }
 
-  /** The player's own living units with where each appears on screen. */
-  private *ownUnitsOnScreen(): Generator<{ id: EntityId; slot: number; x: number; y: number }> {
+  /** Living units with where each appears on screen: the player's own, or everyone else's. */
+  private *unitsOnScreen(own: boolean): Generator<{ id: EntityId; slot: number; x: number; y: number }> {
     const { world } = this.session;
-    for (const id of world.livingUnits(this.player)) {
+    for (const id of world.livingUnits()) {
       const slot = entityIndex(id);
+      if ((world.owner[slot] === this.player) !== own) continue;
       const at = this.view.unitPosition(slot, this.alpha);
       const screen = this.view.toScreen(at.x, at.y, 0.9);
       if (screen.visible) yield { id, slot, x: screen.x, y: screen.y };
     }
+  }
+
+  private ownUnitsOnScreen(): Generator<{ id: EntityId; slot: number; x: number; y: number }> {
+    return this.unitsOnScreen(true);
+  }
+
+  /** The unit of someone else's nearest a screen position, if one is close enough to be meant. */
+  private otherUnitAt(x: number, y: number): EntityId | null {
+    let best: EntityId | null = null;
+    let bestDistance = PICK_RADIUS;
+    for (const unit of this.unitsOnScreen(false)) {
+      const distance = Math.hypot(unit.x - x, unit.y - y);
+      if (distance < bestDistance) {
+        best = unit.id;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
   private click(x: number, y: number, add: boolean, touch: boolean): void {
@@ -301,10 +379,13 @@ export class Controls {
         return;
       }
       if (add) return;
-      // No unit here, but there may be a building to select or a resource to look at.
-      const under = this.view.pick(x, y);
+      // None of the player's units here, but there may be an enemy to look
+      // at, a building to select or a resource to inspect.
+      const other = this.otherUnitAt(x, y);
+      const under = other === null ? this.view.pick(x, y) : null;
       this.clearSelection();
-      if (under?.kind === 'building') this.selectBuilding(under.id);
+      if (other !== null) this.inspectedUnit = other;
+      else if (under?.kind === 'building') this.selectBuilding(under.id);
       else if (under?.kind === 'tile') this.inspectedTile = under.tile;
       return;
     }
@@ -343,17 +424,29 @@ export class Controls {
 
   /**
    * The right-click: whatever makes sense for what is selected and what is
-   * under the pointer. With units: gather from a tree, bush or deposit, work on
-   * one of your building sites, hand in at a drop-off, or go there. With one of
-   * your buildings: set where the units it trains will go.
+   * under the pointer. With units: attack an enemy, gather from a tree, bush
+   * or deposit, work on one of your building sites or mend a damaged building,
+   * hand in at a drop-off, or go there. With one of your buildings: set where
+   * the units it trains will go.
    */
   private orderAt(clientX: number, clientY: number, queue: boolean): void {
     this.dropTheDead();
     const { world } = this.session;
-    const target = this.view.pick(clientX, clientY);
-    if (target === null) return;
     // Show the result of the order as soon as the simulation has taken it up.
     this.hudDue = performance.now() + 90;
+
+    if (this.selected.size > 0) {
+      const foe = this.otherUnitAt(clientX, clientY);
+      if (foe !== null && world.hostile(this.player, world.owner[entityIndex(foe)]!)) {
+        this.session.issue(this.player, { kind: 'attack', units: [...this.selected], target: foe });
+        const at = this.view.unitPosition(entityIndex(foe), this.alpha);
+        this.view.addMarker(at.x, at.y, 'attack');
+        return;
+      }
+    }
+
+    const target = this.view.pick(clientX, clientY);
+    if (target === null) return;
     const spot =
       target.kind === 'tile'
         ? { x: (target.tile % world.map.width) + 0.5, y: Math.floor(target.tile / world.map.width) + 0.5 }
@@ -378,10 +471,16 @@ export class Controls {
     if (target.kind === 'building') {
       const slot = entityIndex(target.id);
       const mine = world.owner[slot] === this.player;
-      if (mine && world.built[slot] === 0) {
+      const type = ENTITY_TYPES[world.entityType[slot]!]!;
+      const damaged = world.hp[slot]! < type.hp;
+      if (!mine && world.hostile(this.player, world.owner[slot]!)) {
+        this.session.issue(this.player, { kind: 'attack', units, target: target.id });
+        this.view.addMarker(spot.x, spot.y, 'attack');
+      } else if (mine && (world.built[slot] === 0 || (damaged && this.buildersSelected() && !this.carrying(type.accepts)))) {
+        // Finish it, or mend it.
         this.session.issue(this.player, { kind: 'construct', units, target: target.id });
         this.view.addMarker(spot.x, spot.y, 'work');
-      } else if (mine && ENTITY_TYPES[world.entityType[slot]!]!.accepts !== 0) {
+      } else if (mine && type.accepts !== 0) {
         this.session.issue(this.player, { kind: 'deliver', units, target: target.id });
         this.view.addMarker(spot.x, spot.y, 'work');
       } else {
@@ -392,18 +491,50 @@ export class Controls {
     this.order(spot.x, spot.y, queue);
   }
 
-  /** Sends the selection to a place. With queue, as a waypoint after what they are already doing. */
+  /** Whether anyone selected is carrying something a building with these `accepts` bits takes in. */
+  private carrying(accepts: number): boolean {
+    const { world } = this.session;
+    for (const id of this.selected) {
+      const slot = entityIndex(id);
+      if (world.carry[slot]! > 0 && (accepts & (1 << world.carryKind[slot]!)) !== 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Sends the selection to a place: as a plain march, or, if the player has
+   * picked attack-move or patrol and is choosing where, as that. With queue,
+   * as a waypoint after what they are already doing.
+   */
   order(x: number, y: number, queue: boolean): void {
     this.dropTheDead();
     if (this.selected.size === 0) return;
-    this.session.issue(this.player, {
-      kind: 'move',
-      units: [...this.selected],
-      x: fromFloat(x),
-      y: fromFloat(y),
-      queue,
-    });
-    this.view.addMarker(x, y, queue ? 'queue' : 'move');
+    const units = [...this.selected];
+    const aiming = this.aiming;
+    if (aiming === 'patrol') {
+      this.session.issue(this.player, { kind: 'patrol', units, x: fromFloat(x), y: fromFloat(y) });
+    } else {
+      this.session.issue(this.player, { kind: aiming ?? 'move', units, x: fromFloat(x), y: fromFloat(y), queue });
+    }
+    this.view.addMarker(x, y, aiming === 'attackMove' ? 'attack' : queue || aiming === 'patrol' ? 'queue' : 'move');
+    // Shift keeps the order in hand for another click.
+    if (aiming !== null && !queue) this.aim(null);
+    this.hudDue = performance.now() + 90;
+  }
+
+  /** Takes up an order that needs a place (the next click on the field gives it), or puts it down. */
+  aim(order: 'attackMove' | 'patrol' | null): void {
+    this.dropTheDead();
+    this.aiming = order !== null && this.selected.size > 0 ? order : null;
+    if (this.aiming !== null && this.placing !== null) this.stopPlacing();
+    this.refreshHud();
+  }
+
+  hold(): void {
+    this.dropTheDead();
+    if (this.selected.size === 0) return;
+    this.session.issue(this.player, { kind: 'hold', units: [...this.selected] });
+    this.hudDue = performance.now() + 90;
   }
 
   /** The player's villagers with nothing to do, in slot order. */
@@ -438,6 +569,8 @@ export class Controls {
   private dropTheDead(): void {
     const { world } = this.session;
     for (const id of this.selected) if (!world.isAlive(id)) this.selected.delete(id);
+    if (this.inspectedUnit !== null && !world.isAlive(this.inspectedUnit)) this.inspectedUnit = null;
+    if (this.selected.size === 0) this.aiming = null;
     if (this.building !== null && !world.isAlive(this.building)) {
       this.building = null;
       this.view.selectBuilding(null);
@@ -505,6 +638,7 @@ export class Controls {
       return this.toast(`Not enough for a ${type.name}: ${costText(type.cost)}`);
     }
     this.placing = entityType;
+    this.aiming = null;
   }
 
   private stopPlacing(): void {
@@ -598,8 +732,21 @@ export class Controls {
       case 's':
         this.stop();
         break;
+      case 'a':
+        this.aim('attackMove');
+        break;
+      case 'p':
+        this.aim('patrol');
+        break;
+      case 'h':
+        this.hold();
+        break;
+      case 'f':
+        if (this.alarmAt !== null) this.view.lookAt(this.alarmAt.x, this.alarmAt.y);
+        break;
       case 'escape':
         if (this.placing !== null) this.stopPlacing();
+        else if (this.aiming !== null) this.aim(null);
         else this.clearSelection();
         this.refreshHud();
         break;
@@ -667,6 +814,7 @@ export class Controls {
     const before = this.selected.size;
     const hadBuilding = this.building;
     this.dropTheDead();
+    this.canvas.style.cursor = this.aiming !== null ? 'cell' : '';
     const now = performance.now();
     if (this.toastUntil !== 0 && now >= this.toastUntil) {
       this.hud.toast.hidden = true;
@@ -674,8 +822,54 @@ export class Controls {
     }
     if (this.selected.size !== before || this.building !== hadBuilding || now >= this.hudDue) {
       this.hudDue = now + 200;
+      this.watchForAttack(now);
       this.refreshHud();
     }
+  }
+
+  /**
+   * Tells the player when something of theirs is hit somewhere they are not
+   * looking: a message, a mark on the map, and F to go there.
+   */
+  private watchForAttack(now: number): void {
+    const { world } = this.session;
+    let hit: { x: number; y: number } | null = null;
+    const seen = this.hpSeen;
+    const present = new Set<EntityId>();
+    for (const id of world.livingEntities(this.player)) {
+      const slot = entityIndex(id);
+      present.add(id);
+      const before = seen.get(id);
+      const hp = world.hp[slot]!;
+      seen.set(id, hp);
+      if (before === undefined || hp >= before) continue;
+      const x = world.posX[slot]! / 65536;
+      const y = world.posY[slot]! / 65536;
+      if (Math.hypot(x - this.view.targetX, y - this.view.targetY) > ALARM_DISTANCE) hit = { x, y };
+    }
+    for (const id of seen.keys()) if (!present.has(id)) seen.delete(id);
+    if (hit === null || now < this.alarmDue) return;
+    this.alarmDue = now + ALARM_EVERY_MS;
+    this.alarmAt = hit;
+    this.toast('Your people are under attack — press F to look');
+    this.onAlarm?.(hit.x, hit.y);
+  }
+
+  /** One unit's vital statistics, for the panel. */
+  private statsOf(slot: number): string {
+    const { world } = this.session;
+    const type = ENTITY_TYPES[world.entityType[slot]!]!;
+    let text = `${world.hp[slot]}/${type.hp} hp`;
+    if (type.damage > 0) {
+      const bonuses = type.bonuses.map(([tags, extra]) => {
+        const against = TAG_WORDS.find(([tag]) => (tags & tag) !== 0)?.[1] ?? 'some';
+        return `+${extra} against ${against}`;
+      });
+      if (type.charge > 0) bonuses.push(`+${type.charge} on a charge`);
+      text += ` · ${type.ranged ? 'shoots' : 'hits'} for ${type.damage}${bonuses.length > 0 ? ` (${bonuses.join(', ')})` : ''}`;
+    }
+    if (type.meleeArmor > 0 || type.rangedArmor > 0) text += ` · armour ${type.meleeArmor} / ${type.rangedArmor} vs arrows`;
+    return text;
   }
 
   private summary(): string {
@@ -683,15 +877,29 @@ export class Controls {
     if (this.placing !== null) {
       return `Placing a ${ENTITY_TYPES[this.placing]!.name} — click to build, shift-click for more, right-click to cancel`;
     }
+    if (this.aiming !== null) {
+      return this.aiming === 'attackMove'
+        ? 'Attack-move — click where to march; they fight whatever they meet. Right-click to cancel'
+        : 'Patrol — click the far end of the beat. Right-click to cancel';
+    }
+    if (this.inspectedUnit !== null && world.isAlive(this.inspectedUnit)) {
+      const slot = entityIndex(this.inspectedUnit);
+      const whose = world.hostile(this.player, world.owner[slot]!) ? 'Enemy' : 'Allied';
+      return `${whose} ${ENTITY_TYPES[world.entityType[slot]!]!.name} · ${this.statsOf(slot)}`;
+    }
     if (this.building !== null && world.isAlive(this.building)) {
       const slot = entityIndex(this.building);
-      const name = capital(ENTITY_TYPES[world.entityType[slot]!]!.name);
-      if (world.owner[slot] !== this.player) return `${name} · the enemy's`;
+      const type = ENTITY_TYPES[world.entityType[slot]!]!;
+      const name = capital(type.name);
+      const health = `${world.hp[slot]}/${type.hp} hp`;
+      if (world.owner[slot] !== this.player) return `${name} · the enemy's · ${health}`;
       if (world.built[slot] === 0) {
         const done = world.buildPoints[slot]! / buildPointsNeeded(world.entityType[slot]!, world.config.tickRate);
-        return `${name} · ${Math.floor(done * 100)}% built`;
+        return `${name} · ${Math.floor(done * 100)}% built · ${health}`;
       }
-      return name;
+      const arrows = type.damage > 0 ? ` · shoots for ${type.damage}, ${type.range / 65536} tiles` : '';
+      const mend = world.hp[slot]! < type.hp ? ' · right-click it with villagers to mend' : '';
+      return `${name} · ${health}${arrows}${mend}`;
     }
     if (this.inspectedTile >= 0) {
       const resource = resourceOfTerrain(world.map.terrain[this.inspectedTile]!);
@@ -711,10 +919,13 @@ export class Controls {
         return `${n} ${n === 1 ? name : (PLURALS[name] ?? `${name}s`)}`;
       })
       .join(' · ');
-    // For a single villager, say what they are up to.
+    // For a single unit, its figures, and for a villager what they are up to.
     if (this.selected.size === 1) {
       const slot = entityIndex([...this.selected][0]!);
-      if (ENTITY_TYPES[world.entityType[slot]!]!.carries > 0) {
+      text = `${capital(ENTITY_TYPES[world.entityType[slot]!]!.name)} · ${this.statsOf(slot)}`;
+      const order = ORDER_WORDS[world.orderKind[slot]!];
+      if (order !== undefined) text += ` — ${order}`;
+      if (ENTITY_TYPES[world.entityType[slot]!]!.carries > 0 && order === undefined) {
         const job = world.job[slot];
         let doing = 'Idle';
         if (job === Job.ToDropOff) doing = 'Carrying a load home';
@@ -732,7 +943,9 @@ export class Controls {
     const { world } = this.session;
     const { hud } = this;
     hud.selection.textContent = this.summary();
-    hud.stop.hidden = this.selected.size === 0;
+    hud.orders.hidden = this.selected.size === 0;
+    hud.attackMove.setAttribute('aria-pressed', String(this.aiming === 'attackMove'));
+    hud.patrol.setAttribute('aria-pressed', String(this.aiming === 'patrol'));
 
     // The action row is rebuilt only when what it offers changes, so a click is never lost to a redraw.
     const actions = this.placing !== null ? [] : this.actions();
