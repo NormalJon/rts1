@@ -245,13 +245,16 @@ what is added for it to `Helpers.BrokenInvariant`.
   written to text and read back.
 - Lines no test runs. A rule that no recorded match and no translated test
   reaches is checked only by reading the two files against each other. A
-  coverage tool (`dotnet test csharp/Rts.slnx --collect:"XPlat Code Coverage"`,
-  which takes about a quarter of an hour) showed the tests running 97.3 per
-  cent of the library's lines before the scenario match, the two extra maps,
-  the table figures and the rule-by-rule tests were added to reach more of
-  them. What was never run when that was last looked at, before the
-  rule-by-rule tests:
-  - in `Combat.cs`, a unit that finds itself inside the outline of the
+  coverage tool
+  (`dotnet test csharp/Rts.slnx -c Release --collect:"XPlat Code Coverage"`,
+  which takes about nine minutes) shows all the tests together running 99.1
+  per cent of the library's lines: 4,580 of 4,622. (It was 97.3 per cent
+  before the scenario match, the two extra maps, the table figures and the
+  rule-by-rule tests were added.) The 42 lines never run, as measured on 12
+  November 2026 with the rule-by-rule tests in:
+  - in `Combat.cs`, a soldier whose quarry stands on ground it cannot walk
+    to heading for the nearest ground it can (the second half of
+    `FindWayToward`), and a unit that finds itself inside the outline of the
     building it is attacking stepping out sideways (`FindPlaceBeside`);
   - in `Movement.cs`, a unit on a flow field whose group or field has gone
     asking for a path of its own (`Steer`);
@@ -259,8 +262,17 @@ what is added for it to `Helpers.BrokenInvariant`.
     there is nothing left to find, and working out where home is for a side
     that has never had a town centre;
   - in `Search.cs`, the heap growing past its first size;
-  - two branches nothing can reach as the rules stand: a change of terrain
-    that alters whether a tile can be walked on (`SetTerrain`), and a
-    technology giving a unit a bonus where it had none;
-  - a few small helpers that nothing in the library calls (`Fixed.ToFloat`,
-    `Units.FromFloat`, `SkirmishAi.Status`).
+  - branches nothing can reach as the rules stand: a change of terrain that
+    alters whether a tile can be walked on (`SetTerrain`), a technology
+    giving a unit a bonus where it had none, a group being put where one of
+    the same number already is (`GroupMap.Set`), and the line after the end
+    of the loop in `LineOfSight`;
+  - what is done about things nothing sends: a figure, an AI level, a kind
+    of soldier or a kind of map that does not exist; a map built with the
+    wrong number of heights; a saved game of the wrong version or the wrong
+    size; a map seed that cannot join the two starts;
+  - `Column.Length`, which nothing calls.
+
+  The small helpers that nothing in the library calls (`Fixed.ToFloat`,
+  `Units.FromFloat`, `SkirmishAi.Status`) are run by the rule-by-rule tests
+  now.
