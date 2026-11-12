@@ -246,7 +246,14 @@ not be run before the work began, because the editor was open; the first
 thing run was the step 10 test against the new code, which passed. Looking at
 the pictures found one fault no test had: the river shone through the fog. It
 is fixed and `FogTests` now looks for it. The TypeScript checks were not run:
-nothing they cover was touched.
+nothing they cover was touched. The new checks have been seen to fail when
+they should. With a right-click on a tree no longer an order to gather,
+clicking twice no longer selecting all of a kind, units out of sight drawn
+all the same, and the stores shown one too many, the four checks concerned
+each failed and named the fault, and the other three passed. With the
+controls made to add to the stores directly as well as giving the order, the
+orders still took effect but the replay with no picture gave another
+checksum, and `OrdersTests` said so.
 
 Never checked for step 11: **a real mouse and keyboard in a real window**.
 The checks drive the game through Unity's input system, but with no window
