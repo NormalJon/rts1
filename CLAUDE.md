@@ -322,9 +322,27 @@ The work has moved here from the cloud workspace.
   for testing. The keys when watching are as before: arrows or W A S D to
   move, the wheel to zoom, + and - for speed, space to pause, 1 and 2 to jump
   to a town. Close the editor again before running `scripts\unity-batch.ps1`.
+- Blender 5.3 and uv 0.13.7 are installed (with `winget`, 12 November 2026;
+  the owner said yes) for a trial of art made by AI model generators. Blender
+  is `C:\Program Files\Blender Foundation\Blender 5.3\blender.exe`. Claude can
+  drive it with no window and no add-on: `blender.exe --background --python
+  script.py` runs a script of Claude's own, and Blender reads `.glb` and
+  writes `.fbx`. Seen to start and to have both.
+- The add-on the owner asked about, "MCP for Blender", is **not** installed.
+  It lets an AI assistant work Blender live and fetch models from generators
+  (Hyper3D Rodin, Hunyuan3D and others). It is genuine: `mcp-for-blender` on
+  PyPI, until lately `blender-mcp`, from github.com/ahujasid/blender-mcp, the
+  same author on both. But the desktop app's safety check refuses to let
+  Claude run its installer (`uvx mcp-for-blender install-addon`), because that
+  is running code fetched from the internet. That refusal is deliberate: do
+  not get round it. If the add-on is wanted, the owner runs the command
+  themselves, turns the add-on on in Blender, and adds it to Claude as a
+  connection; its README has the steps. The add-on runs whatever script it is
+  sent with no password, so it stays on this machine only.
 - A session's PATH can be out of date. If `dotnet` or `node` is not found,
-  they are in `C:\Program Files\dotnet` and `C:\Program Files\nodejs`.
-  Python is not installed.
+  they are in `C:\Program Files\dotnet` and `C:\Program Files\nodejs`; `uv`
+  and `uvx` are under `%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_*`.
+  Python is not installed, though uv can fetch its own.
 - The project lives in `C:\dev\rts_1`. Keep it, and any engine project,
   outside folders that OneDrive syncs. The project's packages are many small
   files, and Unity copes with a synced folder worse still.
@@ -419,4 +437,12 @@ the fuller list of rules that came out of the work)
 - What to do about this repository being public. Bought art may be shipped in
   the game but not published as files (see the licence traps in
   `docs/art-sources.md`), so either the repository becomes private or bought
-  art is kept outside it.
+  art is kept outside it. The same goes for generated art until the terms of
+  whichever service made it have been read.
+- How to run the art trial the owner agreed to on 12 November 2026: one prop,
+  one building and one soldier made by a generator, put in the Unity game
+  beside a sample from a bought pack, and judged from the game's camera.
+  Either the owner installs the Blender add-on themselves (see "The owner's
+  computer"), or, simpler for a trial, the owner makes the three models on a
+  generator's own website and puts the files in a folder, and Claude prepares
+  them with Blender and puts them in the game. Nothing has been generated yet.
