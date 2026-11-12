@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { buildPointsNeeded, ENTITY_TYPES, resourceOfTerrain, ticksOf } from '../../sim/entityTypes';
 import { toFloat } from '../../sim/fixed';
 import { Terrain } from '../../sim/map';
+import { canSee } from '../../sim/vision';
 import { Job, SHOT_FIELDS, type EntityId, type World } from '../../sim/world';
 import { BAKE_FPS, type BakedClip, type Models, type StaticModel, type UnitModel } from './models';
 
@@ -46,6 +47,13 @@ const PROP_HEIGHT: Record<number, number> = {
 const BUILDING_HEIGHT = 6.5;
 
 const MARKER_COLOURS = { move: '#bfe38a', queue: '#e9c46a', work: '#f0d9a0', attack: '#f08a7a' } as const;
+
+/** How bright the ground is drawn: never seen, seen before, and in sight now. */
+const FOG_UNEXPLORED = 0;
+const FOG_EXPLORED = 0.42;
+const FOG_VISIBLE = 1;
+/** How fast the fog rolls back and closes in, as a share of the way per second. */
+const FOG_EASE = 7;
 
 /** How long the fallen lie where they fell, and a ruin's bare plot shows, in seconds. */
 const FALLEN_SECONDS = 9;
@@ -84,13 +92,30 @@ interface Fallen {
   readonly born: number;
 }
 
-interface ShownBuilding {
+/**
+ * A building as the player knows it. While it is out of sight this is a
+ * memory: it stays drawn as it was last seen, even if it has since been
+ * finished, damaged or destroyed, until someone looks at the place again.
+ */
+export interface ShownBuilding {
   readonly id: EntityId;
+  readonly owner: number;
+  readonly entityType: number;
+  /** The tile at its centre. */
+  readonly tileX: number;
+  readonly tileY: number;
   readonly group: THREE.Group;
   readonly model: THREE.Group;
   readonly plot: THREE.Mesh;
   /** How high the finished model stands, in metres. */
   readonly height: number;
+}
+
+/** The parts of a shader that drawing through the fog needs to change. */
+interface ShaderSource {
+  uniforms: Record<string, { value: unknown }>;
+  vertexShader: string;
+  fragmentShader: string;
 }
 
 interface Placement {
@@ -121,6 +146,16 @@ export class GameView {
   /** Called when a tile changes, so other displays (the minimap) can follow. */
   onTileChanged: ((tile: number) => void) | null = null;
 
+  /** A testing aid: draw everything, as if there were no fog. The simulation's rules are unchanged. */
+  revealAll = false;
+  /** The player through whose eyes the match is shown. */
+  readonly viewer: number;
+  /** How bright each tile is drawn just now, easing toward what the viewer's side sees. */
+  private readonly fogShown: Float32Array;
+  private readonly fogPixels: Uint8Array<ArrayBuffer>;
+  private readonly fogTexture: THREE.DataTexture;
+  private readonly fogUniforms: Record<string, { value: unknown }>;
+
   private readonly world: World;
   private readonly models: Models;
   private readonly heights: Float32Array;
@@ -138,7 +173,9 @@ export class GameView {
   private readonly seenTerrain: Uint8Array;
   /** The tree, bush or outcrop standing on each resource tile. */
   private readonly propOfTile = new Map<number, { readonly meshes: THREE.InstancedMesh[]; readonly index: number }>();
-  private readonly buildings = new Map<number, ShownBuilding>();
+  /** Buildings the player knows of, by their handle, and which of them stands on each tile. */
+  private readonly buildings = new Map<EntityId, ShownBuilding>();
+  private readonly buildingAtTile = new Map<number, EntityId>();
   /** Buildings that have just come down: their bare plots fade out. */
   private readonly ruins: { readonly shown: ShownBuilding; readonly born: number }[] = [];
   private readonly fallen: Fallen[] = [];
@@ -170,10 +207,26 @@ export class GameView {
   private readonly tiltMatrix = new THREE.Matrix4();
   private readonly partMatrix = new THREE.Matrix4();
 
-  constructor(canvas: HTMLCanvasElement, world: World, models: Models) {
+  constructor(canvas: HTMLCanvasElement, world: World, models: Models, viewer = 0) {
     this.world = world;
     this.models = models;
+    this.viewer = viewer;
     const { map } = world;
+
+    // The fog is a picture of the map, a pixel to a tile, saying how bright
+    // to draw the ground there. Everything standing on the map looks its own
+    // place up in it, so trees and buildings darken with the land under them.
+    this.fogShown = new Float32Array(map.tileCount);
+    this.fogPixels = new Uint8Array(map.tileCount);
+    this.fogTexture = new THREE.DataTexture(this.fogPixels, map.width, map.height, THREE.LuminanceFormat);
+    this.fogTexture.magFilter = THREE.LinearFilter;
+    this.fogTexture.minFilter = THREE.LinearFilter;
+    this.fogUniforms = {
+      fogMap: { value: this.fogTexture },
+      fogScale: { value: new THREE.Vector2(1 / (map.width * TILE), 1 / (map.height * TILE)) },
+      fogDark: { value: new THREE.Color('#141a17') },
+    };
+    this.updateFog(1000);
     this.targetX = map.width / 2;
     this.targetY = map.height / 2;
 
@@ -411,11 +464,11 @@ export class GameView {
     this.groundColours = new THREE.BufferAttribute(colours, 3);
     geometry.setAttribute('color', this.groundColours);
     geometry.computeVertexNormals();
-    this.scene.add(new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true })));
+    this.scene.add(new THREE.Mesh(geometry, this.fogged(new THREE.MeshLambertMaterial({ vertexColors: true }))));
 
     const water = new THREE.Mesh(
       new THREE.PlaneGeometry(width * TILE, height * TILE).rotateX(-Math.PI / 2),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color('#2a6788'), transparent: true, opacity: 0.8 }),
+      this.fogged(new THREE.MeshLambertMaterial({ color: new THREE.Color('#2a6788'), transparent: true, opacity: 0.8 })),
     );
     water.position.set((width * TILE) / 2, WATER_LEVEL, (height * TILE) / 2);
     this.scene.add(water);
@@ -423,7 +476,8 @@ export class GameView {
     // A dark table under the map, so its edges do not hang in space.
     const table = new THREE.Mesh(
       new THREE.PlaneGeometry(width * TILE * 3, height * TILE * 3).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color('#141a17') }),
+      // The colour of the background and of unexplored ground, so the three are one darkness.
+      new THREE.MeshBasicMaterial({ color: new THREE.Color('#141a17').convertSRGBToLinear() }),
     );
     table.position.set((width * TILE) / 2, -1.2, (height * TILE) / 2);
     this.scene.add(table);
@@ -457,7 +511,7 @@ export class GameView {
     const up = new THREE.Vector3(0, 1, 0);
     const colour = new THREE.Color();
     const meshes = model.parts.map((part) => {
-      const mesh = new THREE.InstancedMesh(part.geometry, part.material, placements.length);
+      const mesh = new THREE.InstancedMesh(part.geometry, this.fogged(part.material), placements.length);
       placements.forEach((p, i) => {
         turn.setFromAxisAngle(up, p.turn);
         place.compose(
@@ -522,13 +576,17 @@ export class GameView {
     this.addProps(this.models.gold, lists.gold!);
   }
 
-  /** Brings the scene up to date with tiles that have changed: felled trees, worked-out deposits. */
+  /**
+   * Brings the scene up to date with tiles that have changed: felled trees,
+   * worked-out deposits. Only for tiles in sight; a tree felled in the fog
+   * stays standing on the player's screen until someone goes and looks.
+   */
   private syncTerrain(): void {
     const { terrain, tileCount } = this.world.map;
     const seen = this.seenTerrain;
     const nothing = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let tile = 0; tile < tileCount; tile++) {
-      if (terrain[tile] === seen[tile]) continue;
+      if (terrain[tile] === seen[tile] || !this.seesTile(tile)) continue;
       seen[tile] = terrain[tile]!;
       const prop = this.propOfTile.get(tile);
       if (prop !== undefined) {
@@ -547,13 +605,14 @@ export class GameView {
 
   private syncBuildings(): void {
     const { world } = this;
-    for (const [slot, shown] of this.buildings) {
-      if (world.isAlive(shown.id)) continue;
-      // Gone: the building vanishes and its bare plot lingers a while.
+    // A known building that is gone is taken off the screen once its place is
+    // in sight again. Until then the player has no way of knowing.
+    for (const shown of this.buildings.values()) {
+      if (world.isAlive(shown.id) || !this.seesPlace(shown)) continue;
       shown.model.visible = false;
       shown.plot.visible = true;
       this.ruins.push({ shown, born: this.seconds });
-      this.buildings.delete(slot);
+      this.forget(shown);
     }
     for (let i = this.ruins.length - 1; i >= 0; i--) {
       const ruin = this.ruins[i]!;
@@ -569,11 +628,15 @@ export class GameView {
     }
     for (let slot = 0; slot < world.highWater; slot++) {
       if (world.alive[slot] === 0 || world.mobile[slot] === 1) continue;
-      let shown = this.buildings.get(slot);
+      // Out of sight, a building is shown as it was last seen, or not at all.
+      if (!this.showsNow(slot)) continue;
+      const id = world.idAt(slot);
+      let shown = this.buildings.get(id);
       if (shown === undefined) {
         const source = this.models.buildings[world.entityType[slot]!];
         if (source === undefined) continue;
-        const span = ENTITY_TYPES[world.entityType[slot]!]!.footprint * TILE;
+        const footprint = ENTITY_TYPES[world.entityType[slot]!]!.footprint;
+        const span = footprint * TILE;
         const team = this.teamLinear[world.owner[slot]! % this.teamLinear.length]!;
         const model = new THREE.Group();
         for (const part of source.parts) {
@@ -582,7 +645,7 @@ export class GameView {
             material = part.material.clone();
             (material as THREE.MeshStandardMaterial).color.copy(team);
           }
-          const mesh = new THREE.Mesh(part.geometry, material);
+          const mesh = new THREE.Mesh(part.geometry, this.fogged(material));
           mesh.matrixAutoUpdate = false;
           mesh.matrix.copy(part.matrix);
           model.add(mesh);
@@ -593,7 +656,9 @@ export class GameView {
         // Bare earth marks out the plot while the building goes up.
         const plot = new THREE.Mesh(
           new THREE.PlaneGeometry(span * 0.96, span * 0.96).rotateX(-Math.PI / 2),
-          new THREE.MeshLambertMaterial({ color: new THREE.Color('#8a7556'), transparent: true, opacity: 0.85, depthWrite: false }),
+          this.fogged(
+            new THREE.MeshLambertMaterial({ color: new THREE.Color('#8a7556'), transparent: true, opacity: 0.85, depthWrite: false }),
+          ),
         );
         plot.position.y = 0.05;
         plot.renderOrder = 1;
@@ -603,8 +668,34 @@ export class GameView {
         const y = toFloat(world.posY[slot]!);
         group.position.set(x * TILE, this.heightAt(x, y), y * TILE);
         this.scene.add(group);
-        shown = { id: world.idAt(slot), group, model, plot, height: source.height * fit };
-        this.buildings.set(slot, shown);
+        shown = {
+          id,
+          owner: world.owner[slot]!,
+          entityType: world.entityType[slot]!,
+          tileX: Math.floor(x),
+          tileY: Math.floor(y),
+          group,
+          model,
+          plot,
+          height: source.height * fit,
+        };
+        // If the player remembers something else on this ground, that memory is out of date.
+        const half = footprint >> 1;
+        for (let ty = shown.tileY - half; ty <= shown.tileY + half; ty++) {
+          for (let tx = shown.tileX - half; tx <= shown.tileX + half; tx++) {
+            const before = this.buildings.get(this.buildingAtTile.get(ty * world.map.width + tx) ?? -1);
+            if (before !== undefined) {
+              this.scene.remove(before.group);
+              this.forget(before);
+            }
+          }
+        }
+        this.buildings.set(id, shown);
+        for (let ty = shown.tileY - half; ty <= shown.tileY + half; ty++) {
+          for (let tx = shown.tileX - half; tx <= shown.tileX + half; tx++) {
+            this.buildingAtTile.set(ty * world.map.width + tx, id);
+          }
+        }
       }
       // A building rises out of the ground as the work is done.
       const finished = world.built[slot] === 1;
@@ -621,19 +712,17 @@ export class GameView {
       }
     }
 
-    // The selected building's outline and rally flag.
-    const selected = this.selectedBuilding;
-    const live = selected !== null && world.isAlive(selected);
-    this.outline.visible = live;
+    // The selected building's outline, and for one of the viewer's own its rally flag.
+    const known = this.selectedBuilding === null ? undefined : this.buildings.get(this.selectedBuilding);
+    this.outline.visible = known !== undefined;
     this.flag.visible = false;
-    if (live) {
-      const slot = selected & 0xfffff;
-      const span = ENTITY_TYPES[world.entityType[slot]!]!.footprint * TILE + 0.5;
-      const x = toFloat(world.posX[slot]!);
-      const y = toFloat(world.posY[slot]!);
-      this.outline.position.set(x * TILE, this.heightAt(x, y) + 0.12, y * TILE);
+    if (known !== undefined) {
+      const span = ENTITY_TYPES[known.entityType]!.footprint * TILE + 0.5;
+      const at = known.group.position;
+      this.outline.position.set(at.x, at.y + 0.12, at.z);
       this.outline.scale.set(span, 1, span);
-      if (world.rallyX[slot]! >= 0) {
+      const slot = known.id & 0xfffff;
+      if (world.isAlive(known.id) && this.onViewersSide(known.owner) && world.rallyX[slot]! >= 0) {
         const rx = toFloat(world.rallyX[slot]!);
         const ry = toFloat(world.rallyY[slot]!);
         this.flag.position.set(rx * TILE, this.heightAt(rx, ry), ry * TILE);
@@ -658,19 +747,120 @@ export class GameView {
     (this.ghost.material as THREE.MeshBasicMaterial).color.set(plot.allowed ? '#9fdc6b' : '#e0584a');
   }
 
-  /** The building standing on a tile, if any. */
+  /** The building the player knows of on a tile, if any. It may be a memory of one since destroyed. */
   private buildingOn(tile: number): EntityId | null {
-    const { world } = this;
-    const tx = tile % world.map.width;
-    const ty = Math.floor(tile / world.map.width);
-    for (let slot = 0; slot < world.highWater; slot++) {
-      if (world.alive[slot] === 0 || world.mobile[slot] === 1) continue;
-      const half = ENTITY_TYPES[world.entityType[slot]!]!.footprint >> 1;
-      const cx = world.posX[slot]! >> 16;
-      const cy = world.posY[slot]! >> 16;
-      if (Math.abs(tx - cx) <= half && Math.abs(ty - cy) <= half) return world.idAt(slot);
+    return this.buildingAtTile.get(tile) ?? null;
+  }
+
+  private forget(shown: ShownBuilding): void {
+    this.buildings.delete(shown.id);
+    const half = ENTITY_TYPES[shown.entityType]!.footprint >> 1;
+    for (let ty = shown.tileY - half; ty <= shown.tileY + half; ty++) {
+      for (let tx = shown.tileX - half; tx <= shown.tileX + half; tx++) {
+        const tile = ty * this.world.map.width + tx;
+        if (this.buildingAtTile.get(tile) === shown.id) this.buildingAtTile.delete(tile);
+      }
     }
-    return null;
+  }
+
+  /** Every building the player knows of, in sight or remembered. */
+  knownBuildings(): IterableIterator<ShownBuilding> {
+    return this.buildings.values();
+  }
+
+  /** What the player knows of one building, if anything. */
+  building(id: EntityId): ShownBuilding | undefined {
+    return this.buildings.get(id);
+  }
+
+  // ---- Fog -------------------------------------------------------------------
+
+  private onViewersSide(owner: number): boolean {
+    return this.world.view[owner] === this.world.view[this.viewer];
+  }
+
+  /** Whether the viewer's side has anyone looking at a tile right now. */
+  seesTile(tile: number): boolean {
+    return this.revealAll || this.world.config.mapState === 'revealed' || this.world.seen[this.world.view[this.viewer]!]![tile]! > 0;
+  }
+
+  /** Whether the viewer's side has ever seen a tile. */
+  knowsTile(tile: number): boolean {
+    return this.seesTile(tile) || this.world.explored[this.world.view[this.viewer]!]![tile] === 1;
+  }
+
+  /** Whether a living unit or building is in the viewer's sight right now. */
+  showsNow(slot: number): boolean {
+    return this.revealAll || this.onViewersSide(this.world.owner[slot]!) || canSee(this.world, this.viewer, slot);
+  }
+
+  /** Whether any part of the ground a known building stands on is in sight. */
+  private seesPlace(shown: ShownBuilding): boolean {
+    const half = ENTITY_TYPES[shown.entityType]!.footprint >> 1;
+    for (let ty = shown.tileY - half; ty <= shown.tileY + half; ty++) {
+      for (let tx = shown.tileX - half; tx <= shown.tileX + half; tx++) {
+        if (this.seesTile(ty * this.world.map.width + tx)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Whether a building the player knows of is in sight right now, and so shown as it truly is. */
+  seesBuilding(id: EntityId): boolean {
+    return this.world.isAlive(id) && this.showsNow(id & 0xfffff);
+  }
+
+  /** Makes a material darken with the fog over the ground it is drawn on. */
+  private fogged<T extends THREE.Material>(material: T): T {
+    material.onBeforeCompile = this.throughFog as unknown as THREE.Material['onBeforeCompile'];
+    return material;
+  }
+
+  /** Adds the fog to one of three.js's own shaders: look up this spot on the map, and dim by what is there. */
+  private readonly throughFog = (shader: ShaderSource): void => {
+    Object.assign(shader.uniforms, this.fogUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform vec2 fogScale;\nvarying vec2 vFogUv;')
+      .replace(
+        '#include <project_vertex>',
+        [
+          '#include <project_vertex>',
+          'vec4 fogAt = vec4( transformed, 1.0 );',
+          '#ifdef USE_INSTANCING',
+          '  fogAt = instanceMatrix * fogAt;',
+          '#endif',
+          'vFogUv = ( modelMatrix * fogAt ).xz * fogScale;',
+        ].join('\n'),
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D fogMap;\nuniform vec3 fogDark;\nvarying vec2 vFogUv;')
+      .replace(
+        '#include <dithering_fragment>',
+        '#include <dithering_fragment>\ngl_FragColor.rgb = mix( fogDark, gl_FragColor.rgb, texture2D( fogMap, vFogUv ).r );',
+      );
+  };
+
+  /** Eases the drawn fog toward what the viewer's side now sees. */
+  private updateFog(dt: number): void {
+    const { world } = this;
+    const view = world.view[this.viewer]!;
+    const seen = world.seen[view]!;
+    const explored = world.explored[view]!;
+    const all = this.revealAll || world.config.mapState === 'revealed';
+    const shown = this.fogShown;
+    const pixels = this.fogPixels;
+    const ease = Math.min(1, dt * FOG_EASE);
+    let changed = false;
+    for (let tile = 0; tile < shown.length; tile++) {
+      const want = all || seen[tile]! > 0 ? FOG_VISIBLE : explored[tile] === 1 ? FOG_EXPLORED : FOG_UNEXPLORED;
+      const now = shown[tile]!;
+      if (now === want) continue;
+      const next = Math.abs(want - now) < 0.01 ? want : now + (want - now) * ease;
+      shown[tile] = next;
+      pixels[tile] = Math.round(next * 255);
+      changed = true;
+    }
+    if (changed) this.fogTexture.needsUpdate = true;
   }
 
   // ---- Units -----------------------------------------------------------------
@@ -683,7 +873,7 @@ export class GameView {
     batch.meshes.length = 0;
     batch.capacity = capacity;
     for (const part of batch.model.parts) {
-      const mesh = new THREE.InstancedMesh(part.geometry, part.material, capacity);
+      const mesh = new THREE.InstancedMesh(part.geometry, this.fogged(part.material), capacity);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       if (part.team) {
         mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
@@ -766,6 +956,11 @@ export class GameView {
       const typeId = world.entityType[slot]!;
       const batch = batchOfType[typeId];
       if (batch === undefined) continue;
+      if (!this.showsNow(slot)) {
+        // Out of sight. If it dies there, nobody sees it fall.
+        this.shownId[slot] = -1;
+        continue;
+      }
       const type = ENTITY_TYPES[typeId]!;
       const curX = toFloat(world.posX[slot]!);
       const curY = toFloat(world.posY[slot]!);
@@ -946,6 +1141,8 @@ export class GameView {
           (fromY + (toY - fromY) * t) * TILE,
         );
       along(gone, at);
+      const over = world.map.tileAt(Math.round((at.x / TILE) * 65536), Math.round((at.z / TILE) * 65536));
+      if (!this.seesTile(over)) continue;
       along(Math.min(1, gone + 0.04), ahead).sub(along(Math.max(0, gone - 0.04), behind));
       if (ahead.lengthSq() < 1e-8) continue;
       turn.setFromUnitVectors(forward, ahead.normalize());
@@ -1092,9 +1289,11 @@ export class GameView {
     const classify = (x: number, y: number, lift: number): Pick | null => {
       if (x < 0 || y < 0 || x >= map.width || y >= map.height) return null;
       const tile = Math.floor(y) * map.width + Math.floor(x);
-      const terrain = map.terrain[tile]!;
+      // What the player believes is there: the terrain as last seen, and buildings known of.
+      if (!this.knowsTile(tile)) return null;
+      const terrain = this.seenTerrain[tile]!;
       if (resourceOfTerrain(terrain) !== -1 && lift <= (PROP_HEIGHT[terrain] ?? 0)) return { kind: 'tile', tile };
-      if (map.blocked[tile] === 1 && lift <= BUILDING_HEIGHT) {
+      if (lift <= BUILDING_HEIGHT) {
         const id = this.buildingOn(tile);
         if (id !== null) return { kind: 'building', id };
       }
@@ -1166,6 +1365,7 @@ export class GameView {
     this.resize();
     this.placeCamera();
     this.barCount = 0;
+    this.updateFog(dt);
     this.syncTerrain();
     this.syncBuildings();
     this.drawUnits(alpha, dt, selected);

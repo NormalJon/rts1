@@ -336,6 +336,8 @@ export class Controls {
     for (const id of world.livingUnits()) {
       const slot = entityIndex(id);
       if ((world.owner[slot] === this.player) !== own) continue;
+      // Nobody can click on what they cannot see.
+      if (!own && !this.view.showsNow(slot)) continue;
       const at = this.view.unitPosition(slot, this.alpha);
       const screen = this.view.toScreen(at.x, at.y, 0.9);
       if (screen.visible) yield { id, slot, x: screen.x, y: screen.y };
@@ -447,11 +449,12 @@ export class Controls {
 
     const target = this.view.pick(clientX, clientY);
     if (target === null) return;
+    const known = target.kind === 'building' ? this.view.building(target.id) : undefined;
     const spot =
       target.kind === 'tile'
         ? { x: (target.tile % world.map.width) + 0.5, y: Math.floor(target.tile / world.map.width) + 0.5 }
         : target.kind === 'building'
-          ? { x: world.posX[entityIndex(target.id)]! / 65536, y: world.posY[entityIndex(target.id)]! / 65536 }
+          ? { x: (known?.tileX ?? 0) + 0.5, y: (known?.tileY ?? 0) + 0.5 }
           : target;
 
     if (this.selected.size === 0) {
@@ -466,6 +469,14 @@ export class Controls {
     if (target.kind === 'tile' && resourceOfTerrain(world.map.terrain[target.tile]!) !== -1) {
       this.session.issue(this.player, { kind: 'gather', units, tile: target.tile });
       this.view.addMarker(spot.x, spot.y, 'work');
+      return;
+    }
+    if (target.kind === 'building' && !world.isAlive(target.id)) {
+      // A building remembered from an earlier look, which has in truth been
+      // destroyed since. The player cannot know that: the soldiers march on
+      // the place ready to fight, and find out when they get there.
+      this.session.issue(this.player, { kind: 'attackMove', units, x: fromFloat(spot.x), y: fromFloat(spot.y), queue });
+      this.view.addMarker(spot.x, spot.y, 'attack');
       return;
     }
     if (target.kind === 'building') {
@@ -569,9 +580,14 @@ export class Controls {
   private dropTheDead(): void {
     const { world } = this.session;
     for (const id of this.selected) if (!world.isAlive(id)) this.selected.delete(id);
-    if (this.inspectedUnit !== null && !world.isAlive(this.inspectedUnit)) this.inspectedUnit = null;
+
+    if (this.inspectedUnit !== null && (!world.isAlive(this.inspectedUnit) || !this.view.showsNow(entityIndex(this.inspectedUnit)))) {
+      this.inspectedUnit = null;
+    }
     if (this.selected.size === 0) this.aiming = null;
-    if (this.building !== null && !world.isAlive(this.building)) {
+    // A building stays selected for as long as the player knows of it. One
+    // remembered from an earlier look may be gone, but they cannot tell yet.
+    if (this.building !== null && this.view.building(this.building) === undefined) {
       this.building = null;
       this.view.selectBuilding(null);
     }
@@ -656,7 +672,7 @@ export class Controls {
     const type = ENTITY_TYPES[this.placing]!;
     const tileX = Math.floor(ground.x);
     const tileY = Math.floor(ground.y);
-    const allowed = canPlace(world, this.placing, tileX, tileY) && world.canAfford(this.player, type.cost);
+    const allowed = canPlace(world, this.placing, tileX, tileY, this.player) && world.canAfford(this.player, type.cost);
     return { tileX, tileY, size: type.footprint, allowed };
   }
 
@@ -668,7 +684,7 @@ export class Controls {
     if (!plot.allowed) {
       this.toast(
         world.canAfford(this.player, type.cost)
-          ? 'It needs open, level grass: no trees, water, rock or buildings'
+          ? 'It needs open grass you have explored: no trees, water, rock or buildings'
           : `Not enough for a ${type.name}: ${costText(type.cost)}`,
       );
       return;
@@ -886,6 +902,12 @@ export class Controls {
       const slot = entityIndex(this.inspectedUnit);
       const whose = world.hostile(this.player, world.owner[slot]!) ? 'Enemy' : 'Allied';
       return `${whose} ${ENTITY_TYPES[world.entityType[slot]!]!.name} · ${this.statsOf(slot)}`;
+    }
+    const remembered = this.building === null ? undefined : this.view.building(this.building);
+    if (remembered !== undefined && !this.view.seesBuilding(remembered.id)) {
+      // Out of sight, all the player has is the memory of it.
+      const whose = world.hostile(this.player, remembered.owner) ? "the enemy's" : "an ally's";
+      return `${capital(ENTITY_TYPES[remembered.entityType]!.name)} · ${whose} · as last seen`;
     }
     if (this.building !== null && world.isAlive(this.building)) {
       const slot = entityIndex(this.building);

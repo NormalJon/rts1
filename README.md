@@ -1,16 +1,16 @@
 # Medieval RTS (working title)
 
 A historical real-time strategy game covering roughly 800–1600 CE. This
-repository holds the first five steps of the core build: the deterministic
+repository holds the first six steps of the core build: the deterministic
 simulation loop; maps, pathfinding and unit movement with a 3D view to play
-it in; resources and gathering; buildings, training and population; then
-combat and the counter triangle.
+it in; resources and gathering; buildings, training and population; combat
+and the counter triangle; then fog of war.
 
 ## Commands
 
 ```bash
 npm install
-npm test               # maths, maps, pathfinding, movement, economy, buildings, combat, determinism, source rules
+npm test               # maths, maps, pathfinding, movement, economy, buildings, combat, vision, determinism, source rules
 npm run typecheck
 npm run dev            # pages at http://localhost:5173
 npm run build          # writes dist/playtest.html and dist/tick-rate-lab.html
@@ -97,6 +97,21 @@ npm run check:browser  # reference match must give the same checksum in a browse
   An attack-move fights whatever it meets and then carries on; a patrol does
   that to and fro. Hold strikes only what comes within reach. Players can be
   put on sides (`teams` in the match settings), and allies do not fight.
+- **Fog of war.** `src/sim/vision.ts`. Every unit and building sees a disc of
+  tiles (7 to 13 across the types), and allies see as one. For each side the
+  world counts how many of its own can see each tile and records every tile
+  ever seen, which gives the three states a player knows: unexplored,
+  explored, visible. The counts follow units from tile to tile and always
+  equal a count made from scratch; a saved game stores only what has been
+  explored. The fog is in the simulation, not just on the screen, because it
+  decides what a side may do: soldiers go only for enemies their side can
+  see and lose a quarry that gets out of sight, an attack cannot be ordered
+  on an unseen unit (a building on explored ground can be attacked from
+  memory), and nothing can be founded on ground never seen. A match starts
+  `concealed`, `explored` or `revealed` (`mapState` in the match settings).
+  In the playtest, the view (`src/client/game/view.ts`) keeps what the player
+  believes: terrain and enemy buildings stay drawn as last seen until someone
+  looks again.
 
 ## Rules for code in `src/sim`
 
@@ -112,10 +127,11 @@ npm run check:browser  # reference match must give the same checksum in a browse
 
 ## Not in yet
 
-Walls, gates and siege engines; garrisoning; fog of war (every unit can be
-seen and targeted); an AI (the playtest's red side follows a short script in
-`src/client/game/main.ts`); ages and technology. Mending a building is free.
-Formations march as a block but do not keep ranks on the way.
+Walls, gates and siege engines; garrisoning; an AI (the playtest's red side
+follows a short script in `src/client/game/main.ts`); ages and technology.
+Mending a building is free. Formations march as a block but do not keep ranks
+on the way. Nothing blocks sight: units see over trees and hills alike, and
+high ground does not see further.
 
 If a change alters how a match plays out, the reference checksum in
 `test/determinism.test.ts` (and `scripts/browser-check.mjs`) fails. Update it

@@ -95,7 +95,7 @@
   #selection { font-size: 14px; font-weight: 500; min-width: 0; }
   #orders { display: flex; gap: 6px; flex: none; }
   #orders button { display: inline-flex; align-items: center; gap: 6px; background: transparent; padding: 5px 9px; white-space: nowrap; }
-  #orders button[aria-pressed="true"] { border-color: var(--woad); color: var(--woad); }
+  #orders button[aria-pressed="true"], .tools button[aria-pressed="true"] { border-color: var(--woad); color: var(--woad); }
   #banner { position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%); padding: 18px 30px; text-align: center; pointer-events: none; }
   #banner strong { display: block; font-family: var(--font-display); font-weight: 600; font-size: 1.7rem; letter-spacing: 0.02em; }
   #banner span { color: var(--muted); font-size: 13.5px; }
@@ -125,7 +125,7 @@
   <div class="hud">
     <div class="title">
       <div class="panel title-card">
-        <h1>Playtest<span class="wide"> · combat</span></h1>
+        <h1>Playtest<span class="wide"> · fog of war</span></h1>
         <div id="stats">starting…</div>
       </div>
       <div id="production" aria-label="In training" hidden></div>
@@ -141,6 +141,7 @@
 
     <div class="tools">
       <button type="button" id="btn-help" aria-expanded="true" aria-controls="help">Controls</button>
+      <button type="button" id="btn-fog" aria-pressed="false" title="Testing aid: show the whole map. The game's rules stay the same.">Lift fog</button>
       <button type="button" id="btn-fullscreen">Full screen</button>
     </div>
 
@@ -167,6 +168,7 @@
         <dt>esc</dt><dd>Clear the selection</dd>
       </dl>
       <p><b>Spearmen</b> stop horsemen, <b>horsemen</b> ride down archers, <b>archers</b> shoot spearmen before they close. Soldiers left alone guard where they stand; a plain move ignores the enemy.</p>
+      <p>You see only what your people see. Ground you have left stays on the map as you last saw it; ground you have never seen is dark, and nothing can be built there. <b>Lift fog</b> shows everything, for testing.</p>
       <p>You lead the blue side, in the north-west. Red has no general yet: its villagers work, its guards and town centre defend, and a raiding party sets out for your town every minute and a half from the third minute, a little larger each time. Pull down its town centre to win.</p>
     </aside>
 

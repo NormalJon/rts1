@@ -1,6 +1,7 @@
 /**
- * The minimap: the whole map from straight above, with every unit as a dot
- * and the outline of what the main view is showing.
+ * The minimap: the map from straight above as far as the player knows it,
+ * with every unit in sight as a dot and the outline of what the main view is
+ * showing.
  */
 
 import { ENTITY_TYPES } from '../../sim/entityTypes';
@@ -27,6 +28,11 @@ export class Minimap {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly terrain: HTMLCanvasElement;
   private readonly paint: CanvasRenderingContext2D;
+  /** The fog, a pixel per tile: opaque over ground never seen, a veil over ground seen before. */
+  private readonly fog: HTMLCanvasElement;
+  private readonly fogPaint: CanvasRenderingContext2D;
+  private readonly fogImage: ImageData;
+  private fogDue = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -48,6 +54,13 @@ export class Minimap {
       image.data.set([r, g, b, 255], tile * 4);
     }
     this.paint.putImageData(image, 0, 0);
+
+    this.fog = document.createElement('canvas');
+    this.fog.width = map.width;
+    this.fog.height = map.height;
+    this.fogPaint = this.fog.getContext('2d')!;
+    this.fogImage = this.fogPaint.createImageData(map.width, map.height);
+    for (let tile = 0; tile < map.tileCount; tile++) this.fogImage.data.set([14, 18, 16], tile * 4);
 
     const toTiles = (event: PointerEvent | MouseEvent): { x: number; y: number } => {
       const rect = canvas.getBoundingClientRect();
@@ -111,20 +124,41 @@ export class Minimap {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.terrain, 0, 0, size, tall);
 
+    // The fog is redrawn a few times a second, which is as fast as it changes to the eye.
+    const now = performance.now();
+    if (now >= this.fogDue) {
+      this.fogDue = now + 150;
+      const alpha = this.fogImage.data;
+      for (let tile = 0; tile < map.tileCount; tile++) {
+        alpha[tile * 4 + 3] = this.view.seesTile(tile) ? 0 : this.view.knowsTile(tile) ? 120 : 255;
+      }
+      this.fogPaint.putImageData(this.fogImage, 0, 0);
+    }
+    ctx.drawImage(this.fog, 0, 0, size, tall);
+
     const dot = Math.max(2, Math.round(ratio * 2));
+    // Buildings the player knows of, in sight or remembered, as squares the size of their footprint.
+    for (const building of this.view.knownBuildings()) {
+      const side = Math.max(dot * 2, ENTITY_TYPES[building.entityType]!.footprint * sx);
+      ctx.fillStyle = TEAM_COLOURS[building.owner % TEAM_COLOURS.length]!;
+      ctx.fillRect(
+        Math.round((building.tileX + 0.5) * sx - side / 2),
+        Math.round((building.tileY + 0.5) * sy - side / 2),
+        Math.round(side),
+        Math.round(side),
+      );
+    }
+    // Units, where they can be seen.
     for (let slot = 0; slot < world.highWater; slot++) {
-      if (world.alive[slot] === 0) continue;
+      if (world.alive[slot] === 0 || world.mobile[slot] === 0 || !this.view.showsNow(slot)) continue;
       const x = toFloat(world.posX[slot]!) * sx;
       const y = toFloat(world.posY[slot]!) * sy;
       ctx.fillStyle = selected.has(world.idAt(slot))
         ? '#ffffff'
         : TEAM_COLOURS[world.owner[slot]! % TEAM_COLOURS.length]!;
-      // Buildings show as a square the size of their footprint.
-      const side = world.mobile[slot] === 1 ? dot : Math.max(dot * 2, ENTITY_TYPES[world.entityType[slot]!]!.footprint * sx);
-      ctx.fillRect(Math.round(x - side / 2), Math.round(y - side / 2), Math.round(side), Math.round(side));
+      ctx.fillRect(Math.round(x - dot / 2), Math.round(y - dot / 2), dot, dot);
     }
 
-    const now = performance.now();
     for (let i = this.pings.length - 1; i >= 0; i--) {
       const ping = this.pings[i]!;
       const age = (now - ping.born) / PING_MS;

@@ -177,6 +177,13 @@ async function start(): Promise<void> {
   // Open to begin with where there is room for it.
   setHelp(window.innerWidth >= 760);
   helpButton.addEventListener('click', () => setHelp(help.hasAttribute('hidden')));
+  // A testing aid: draw the whole map as if there were no fog. The rules do not change.
+  const fogButton = byId<HTMLButtonElement>('btn-fog');
+  fogButton.addEventListener('click', () => {
+    view.revealAll = !view.revealAll;
+    fogButton.setAttribute('aria-pressed', String(view.revealAll));
+    canvas.focus();
+  });
   byId('btn-fullscreen').addEventListener('click', () => {
     const page = document.documentElement;
     if (document.fullscreenElement) void document.exitFullscreen();
