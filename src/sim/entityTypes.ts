@@ -16,6 +16,7 @@ export const RESOURCE_NAMES = ['food', 'wood', 'stone', 'gold'] as const;
 export function resourceOfTerrain(terrain: number): number {
   switch (terrain) {
     case Terrain.Berries:
+    case Terrain.Field:
       return Resource.Food;
     case Terrain.Forest:
       return Resource.Wood;
@@ -36,9 +37,12 @@ const SECONDS_PER_UNIT: readonly (readonly [number, number])[] = [
   [8, 5], // gold
 ];
 
-/** Ticks of work to gather one unit of a resource. */
-export function ticksPerUnit(resource: number, tickRate: number): number {
-  const [seconds, per] = SECONDS_PER_UNIT[resource]!;
+/** A farm is steadier than a berry bush but slower: seconds of work per unit of food, as a fraction. */
+const SECONDS_PER_UNIT_FARMED: readonly [number, number] = [8, 5];
+
+/** Ticks of work to gather one unit from a tile of a given terrain. */
+export function ticksPerUnit(terrain: number, tickRate: number): number {
+  const [seconds, per] = terrain === Terrain.Field ? SECONDS_PER_UNIT_FARMED : SECONDS_PER_UNIT[resourceOfTerrain(terrain)]!;
   return Math.max(1, idiv(tickRate * seconds * 2 + per, per * 2));
 }
 
@@ -110,6 +114,12 @@ export interface EntityType {
   readonly trains: readonly number[];
   /** Buildings: whether villagers can be told to build one. */
   readonly buildable: boolean;
+  /**
+   * Buildings: whether it is a farm. Once built, a farm is tilled ground
+   * rather than walls: it can be walked over, and one villager at a time
+   * gathers food from the middle of it without end.
+   */
+  readonly farm: boolean;
 }
 
 type Cost = readonly [number, number, number, number];
@@ -175,6 +185,7 @@ function unit(
     housing: 0,
     trains: [],
     buildable: false,
+    farm: false,
   };
 }
 
@@ -184,7 +195,14 @@ function building(
   seconds: number,
   footprint: number,
   hp: number,
-  extras: { accepts?: number; housing?: number; trains?: readonly number[]; buildable?: boolean; sight?: number } = {},
+  extras: {
+    accepts?: number;
+    housing?: number;
+    trains?: readonly number[];
+    buildable?: boolean;
+    sight?: number;
+    farm?: boolean;
+  } = {},
   weapon: Weapon = UNARMED,
 ): EntityType {
   return {
@@ -217,6 +235,7 @@ function building(
     housing: extras.housing ?? 0,
     trains: extras.trains ?? [],
     buildable: extras.buildable ?? true,
+    farm: extras.farm ?? false,
   };
 }
 
@@ -234,6 +253,7 @@ export const Kind = {
   ArcheryRange: 10,
   Stable: 11,
   Watchtower: 12,
+  Farm: 13,
 } as const;
 
 /**
@@ -323,6 +343,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
   building('archery range', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Archer] }),
   building('stable', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Horseman] }),
   building('watchtower', [0, 100, 50, 0], 45, 3, 700, { sight: 13 }, { ...ARROWS_FROM_A_BUILDING, range: 7 * ONE }),
+  building('farm', [0, 75, 0, 0], 20, 3, 300, { farm: true, sight: 3 }),
 ];
 
 /** How fast an arrow flies, in tiles per second. */

@@ -53,6 +53,7 @@ export function hashWorld(world: World): number {
   for (let i = 0; i < world.stock.length; i++) add(world.stock[i]!);
   for (let i = 0; i < world.spent.length; i++) add(world.spent[i]!);
   for (let i = 0; i < world.lost.length; i++) add(world.lost[i]!);
+  for (let i = 0; i < world.grown.length; i++) add(world.grown[i]!);
   add(world.exploredHash);
   add(world.shotCount);
   for (let i = 0; i < world.shotCount * SHOT_FIELDS; i++) add(world.shots[i]!);

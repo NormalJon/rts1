@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const EXPECTED = '863ee180'; // keep in step with test/determinism.test.ts
+const EXPECTED = '8c258efb'; // keep in step with test/determinism.test.ts
 
 const { outputFiles } = await build({
   stdin: {

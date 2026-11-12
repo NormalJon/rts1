@@ -1,6 +1,7 @@
 import { canPlace } from '../src/sim/buildings';
 import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, resourceOfTerrain, TRAIN_QUEUE_LENGTH } from '../src/sim/entityTypes';
 import { fromInt, length } from '../src/sim/fixed';
+import { Terrain } from '../src/sim/map';
 import { hashWorld } from '../src/sim/hash';
 import { Rng } from '../src/sim/rng';
 import { ORDER_QUEUE_LENGTH, SHOT_FIELDS, type SimConfig, type World } from '../src/sim/world';
@@ -211,11 +212,17 @@ export function playRandomMatch(
  */
 const startingTotals = new WeakMap<World, number[]>();
 
-/** Everything of each resource there is: in the ground, on villagers' backs, in the stores, spent, and lost with the dead. */
+/**
+ * Everything of each resource there is: in the ground, on villagers' backs,
+ * in the stores, spent, and lost with the dead; less what farms have grown,
+ * which is the one thing that comes from nowhere.
+ */
 export function resourceTotals(world: World): number[] {
   const totals = new Array<number>(RESOURCE_COUNT).fill(0);
   const { map } = world;
   for (let tile = 0; tile < map.tileCount; tile++) {
+    // A farm's crop is not a store in the ground: it is counted as it is grown.
+    if (map.terrain[tile] === Terrain.Field) continue;
     const resource = resourceOfTerrain(map.terrain[tile]!);
     if (resource !== -1) totals[resource]! += map.amount[tile]!;
     else if (map.amount[tile] !== 0) totals[0] = NaN; // an amount where there is no resource
@@ -224,7 +231,7 @@ export function resourceTotals(world: World): number[] {
     if (world.alive[slot] === 1) totals[world.carryKind[slot]!]! += world.carry[slot]!;
   }
   for (let i = 0; i < world.stock.length; i++) totals[i % RESOURCE_COUNT]! += world.stock[i]! + world.spent[i]!;
-  for (let r = 0; r < RESOURCE_COUNT; r++) totals[r]! += world.lost[r]!;
+  for (let r = 0; r < RESOURCE_COUNT; r++) totals[r]! += world.lost[r]! - world.grown[r]!;
   return totals;
 }
 
@@ -276,6 +283,7 @@ export function brokenInvariant(world: World): string | null {
   if (world.tick % 20 === 0 && !regionsAreRight(world)) return 'the map\'s connected regions are out of date';
   // Every built-on tile belongs to a building and every building's tiles are built on.
   let built = 0;
+  let fields = 0;
   const claims = new Map<number, number>();
   const claim = (group: number): void => {
     if (group !== 0) claims.set(group, (claims.get(group) ?? 0) + 1);
@@ -299,7 +307,22 @@ export function brokenInvariant(world: World): string | null {
       if (world.trainLength[slot] === 0 && (world.trainTicks[slot] !== 0 || world.trainStarted[slot] !== 0)) {
         return `building ${slot} is training with nothing queued`;
       }
-      built += type.footprint * type.footprint;
+      if (type.farm && world.built[slot] === 1) {
+        // A finished farm is tilled ground, not walls: nine tiles of field, the crop in the middle one.
+        const cx = x >> 16;
+        const cy = y >> 16;
+        for (let ty = cy - 1; ty <= cy + 1; ty++) {
+          for (let tx = cx - 1; tx <= cx + 1; tx++) {
+            const tile = ty * map.width + tx;
+            if (map.terrain[tile] !== Terrain.Field) return `farm ${slot} is not tilled at tile ${tile}`;
+            if (map.amount[tile] !== (tx === cx && ty === cy ? 1 : 0)) return `farm ${slot} has its crop in the wrong place`;
+            if (map.blocked[tile] === 1) return `farm ${slot} blocks the way`;
+          }
+        }
+        fields += 9;
+      } else {
+        built += type.footprint * type.footprint;
+      }
       continue;
     }
     if (x < 0 || y < 0 || x > map.maxX || y > map.maxY) return `unit ${slot} is off the map`;
@@ -309,8 +332,13 @@ export function brokenInvariant(world: World): string | null {
     for (let k = 0; k < world.queueLength[slot]!; k++) claim(world.queueGroup[slot * ORDER_QUEUE_LENGTH + k]!);
   }
   let blocked = 0;
-  for (let tile = 0; tile < map.tileCount; tile++) blocked += map.blocked[tile]!;
+  let tilled = 0;
+  for (let tile = 0; tile < map.tileCount; tile++) {
+    blocked += map.blocked[tile]!;
+    if (map.terrain[tile] === Terrain.Field) tilled++;
+  }
   if (blocked !== built) return `${blocked} tiles are marked as built on, but buildings cover ${built}`;
+  if (tilled !== fields) return `${tilled} tiles are tilled, but farms cover ${fields}`;
   for (const group of world.groups.values()) {
     if (group.refs !== (claims.get(group.id) ?? 0)) {
       return `group ${group.id} counts ${group.refs} units but ${claims.get(group.id) ?? 0} refer to it`;

@@ -6,6 +6,7 @@
  * other players before it runs. The simulation itself does not change.
  */
 
+import type { Controller } from '../ai/skirmish';
 import type { Command, ScheduledCommand } from '../sim/commands';
 import type { Replay } from '../sim/replay';
 import { step } from '../sim/sim';
@@ -22,6 +23,8 @@ export class LocalSession {
 
   private readonly nextSeq: number[];
   private readonly log: ScheduledCommand[] = [];
+  /** Players run by something other than a person at this machine: an AI, say. */
+  private readonly controllers: (Controller | undefined)[] = [];
 
   constructor(config: SimConfig, inputDelayTicks = 0) {
     this.world = new World(config);
@@ -45,7 +48,22 @@ export class LocalSession {
     return entry;
   }
 
+  /**
+   * Hands a player over to a controller, which is asked for its commands
+   * before every tick. They are issued and recorded like anyone else's, so a
+   * replay of the match plays back without the controller.
+   */
+  control(player: number, controller: Controller | undefined): void {
+    if (player < 0 || player >= this.nextSeq.length) throw new RangeError(`no such player: ${player}`);
+    this.controllers[player] = controller;
+  }
+
   step(): void {
+    for (let player = 0; player < this.controllers.length; player++) {
+      const controller = this.controllers[player];
+      if (controller === undefined) continue;
+      for (const command of controller.act(this.world)) this.issue(player, command);
+    }
     step(this.world);
   }
 

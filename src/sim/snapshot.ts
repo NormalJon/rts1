@@ -43,7 +43,7 @@ interface SavedSearch {
 }
 
 export interface WorldSnapshot {
-  readonly version: 6;
+  readonly version: 7;
   readonly config: SimConfig;
   readonly tick: number;
   readonly rng: RngState;
@@ -55,8 +55,9 @@ export interface WorldSnapshot {
   /** Each player's stockpile, and what they have spent. */
   readonly stock: readonly number[];
   readonly spent: readonly number[];
-  /** Resources that died with the villagers carrying them. */
+  /** Resources that died with the villagers carrying them, and food grown on farms. */
   readonly lost: readonly number[];
+  readonly grown: readonly number[];
   /** Arrows in the air, SHOT_FIELDS numbers each. */
   readonly shots: readonly number[];
   /**
@@ -89,7 +90,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
   }
   const active = world.activeSearch;
   return {
-    version: 6,
+    version: 7,
     config: { ...world.config },
     tick: world.tick,
     rng: world.rng.getState(),
@@ -100,6 +101,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
     stock: Array.from(world.stock),
     spent: Array.from(world.spent),
     lost: Array.from(world.lost),
+    grown: Array.from(world.grown),
     shots: Array.from(world.shots.subarray(0, world.shotCount * SHOT_FIELDS)),
     explored: world.explored.map((_, view) => exploredRuns(world, view)),
     columns,
@@ -130,7 +132,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
 }
 
 export function restoreSnapshot(snapshot: WorldSnapshot): World {
-  if (snapshot.version !== 6) {
+  if (snapshot.version !== 7) {
     throw new Error(`unsupported snapshot version ${String(snapshot.version)}`);
   }
   const world = new World(snapshot.config, true);
@@ -157,7 +159,9 @@ export function restoreSnapshot(snapshot: WorldSnapshot): World {
   world.map.restoreState(snapshot.terrain, snapshot.amount);
   for (let slot = 0; slot < world.highWater; slot++) {
     if (world.alive[slot] === 0 || world.mobile[slot] === 1) continue;
-    const footprint = ENTITY_TYPES[world.entityType[slot]!]!.footprint;
+    const { footprint, farm } = ENTITY_TYPES[world.entityType[slot]!]!;
+    // A finished farm is ground to walk on, already in the saved terrain.
+    if (farm && world.built[slot] === 1) continue;
     const half = footprint >> 1;
     world.map.setBuilding((world.posX[slot]! >> 16) - half, (world.posY[slot]! >> 16) - half, footprint, true);
   }
@@ -165,6 +169,7 @@ export function restoreSnapshot(snapshot: WorldSnapshot): World {
   world.stock.set(snapshot.stock);
   world.spent.set(snapshot.spent);
   world.lost.set(snapshot.lost);
+  world.grown.set(snapshot.grown);
   if (snapshot.shots.length > world.shots.length) world.shots = new Int32Array(snapshot.shots.length);
   world.shots.set(snapshot.shots);
   world.shotCount = idiv(snapshot.shots.length, SHOT_FIELDS);

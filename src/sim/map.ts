@@ -28,11 +28,13 @@ export const Terrain = {
   Stone: 6,
   /** Gold ore. */
   Gold: 7,
+  /** Tilled ground: a farm. It can be walked over, and its crop never runs out. */
+  Field: 8,
 } as const;
 
-const PASSABLE_BY_TERRAIN = [1, 0, 1, 0, 0, 0, 0, 0];
+const PASSABLE_BY_TERRAIN = [1, 0, 1, 0, 0, 0, 0, 0, 1];
 /** How much a tile of each terrain holds before anyone has gathered from it. */
-const STARTING_AMOUNT = [0, 100, 0, 0, 0, 250, 500, 700];
+const STARTING_AMOUNT = [0, 100, 0, 0, 0, 250, 500, 700, 0];
 
 export interface StartPosition {
   readonly x: Fixed;
@@ -142,6 +144,23 @@ export class GameMap {
     this.stateHash = (this.stateHash + this.tileHash(tile)) | 0;
     if (exhausted) this.open(tile);
     return exhausted;
+  }
+
+  /**
+   * Changes what one tile is and how much it holds, as when a farm is laid
+   * out or ploughed under.
+   */
+  setTerrain(tile: number, terrain: number, amount: number): void {
+    if (this.terrain[tile] === terrain && this.amount[tile] === amount) return;
+    this.stateHash = (this.stateHash - this.tileHash(tile)) | 0;
+    this.terrain[tile] = terrain;
+    this.amount[tile] = amount;
+    this.stateHash = (this.stateHash + this.tileHash(tile)) | 0;
+    const passable = this.blocked[tile] === 0 ? (PASSABLE_BY_TERRAIN[terrain] ?? 0) : 0;
+    if (passable === this.passable[tile]) return;
+    this.passable[tile] = passable;
+    this.passVersion++;
+    this.labelRegions();
   }
 
   /** Marks a square of tiles as built on, or clears it again. */

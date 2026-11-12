@@ -29,7 +29,7 @@ import {
   ticksPerUnit,
 } from './entityTypes';
 import { fromRatio, HALF, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
-import { DIR_X, DIR_Y } from './map';
+import { DIR_X, DIR_Y, Terrain } from './map';
 import { beginOrder } from './routing';
 import { entityIndex, Job, MoveState, NO_ENTITY, type EntityId, type World } from './world';
 
@@ -179,11 +179,14 @@ export function economySystem(world: World): void {
       if (fromPost <= ONE >> 4) goToResource(world, slot);
       continue;
     }
-    const resource = resourceOfTerrain(map.terrain[tile]!);
+    const terrain = map.terrain[tile]!;
+    const resource = resourceOfTerrain(terrain);
     world.jobTimer[slot] = world.jobTimer[slot]! + 1;
-    if (world.jobTimer[slot]! < ticksPerUnit(resource, world.config.tickRate)) continue;
+    if (world.jobTimer[slot]! < ticksPerUnit(terrain, world.config.tickRate)) continue;
     world.jobTimer[slot] = 0;
-    map.harvest(tile);
+    // A farm's crop is grown, not taken: the field holds as much afterwards as before.
+    if (terrain === Terrain.Field) world.grown[resource] = world.grown[resource]! + 1;
+    else map.harvest(tile);
     world.carryKind[slot] = resource;
     world.carry[slot] = world.carry[slot]! + 1;
     if (world.carry[slot]! >= ENTITY_TYPES[world.entityType[slot]!]!.carries) startDelivery(world, slot);
@@ -316,13 +319,15 @@ function freeSpot(world: World, slot: number, tile: number, region: number, take
   const py = world.posY[slot]!;
   let best = -1;
   let bestDistance = 0;
-  for (let dir = 0; dir < 8; dir++) {
+  // A farm is worked by one villager, who always stands in the same place: just south of its middle.
+  const farm = map.terrain[tile] === Terrain.Field;
+  for (let dir = farm ? 2 : 0; dir < (farm ? 3 : 8); dir++) {
     const nx = tx + DIR_X[dir]!;
     const ny = ty + DIR_Y[dir]!;
     if (!map.isPassable(nx, ny)) continue;
     const stand = ny * map.width + nx;
     if (map.region[stand] !== region) continue;
-    for (let side = 0; side < 2; side++) {
+    for (let side = 0; side < (farm ? 1 : 2); side++) {
       const spot = stand * 2 + side;
       if (taken.has(spot)) continue;
       const distance = length(spotX(world, spot, tile) - px, spotY(world, spot, tile) - py);
@@ -496,6 +501,7 @@ function build(world: World, slot: number): void {
   world.hp[at] = Math.min(type.hp, world.hp[at]! + gained);
   if (after >= needed) {
     world.built[at] = 1;
+    if (type.farm) world.tillFarm(at);
     afterBuilding(world, slot, site);
   }
 }
@@ -515,6 +521,11 @@ function afterBuilding(world: World, slot: number, finished: EntityId): void {
     const at = entityIndex(finished);
     const cx = world.posX[at]! >> 16;
     const cy = world.posY[at]! >> 16;
+    // Whoever finishes a farm starts farming it, if nobody has beaten them to it.
+    if (ENTITY_TYPES[world.entityType[at]!]!.farm && ENTITY_TYPES[world.entityType[slot]!]!.carries > 0) {
+      const tile = cy * map.width + cx;
+      if (freeSpot(world, slot, tile, region, spotsTakenExcept(world, [slot])) !== -1 && assignGather(world, slot, tile)) return;
+    }
     let best = -1;
     let bestDistance = 0;
     for (const terrain of terrainsAccepted(world.entityType[at]!)) {

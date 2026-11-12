@@ -101,11 +101,13 @@ describe('gathering', () => {
     const began = world.tick;
     run(world, 600, () => carryOf(world, worker) === 6);
     // Wood takes a second and a half a unit: 45 ticks at 30 ticks a second.
-    expect(ticksPerUnit(Resource.Wood, 30)).toBe(45);
+    expect(ticksPerUnit(Terrain.Forest, 30)).toBe(45);
     expect(world.tick - began).toBe(6 * 45);
-    expect(ticksPerUnit(Resource.Food, 30)).toBe(38);
-    expect(ticksPerUnit(Resource.Gold, 30)).toBe(48);
-    expect(ticksPerUnit(Resource.Wood, 8)).toBe(12);
+    expect(ticksPerUnit(Terrain.Berries, 30)).toBe(38);
+    expect(ticksPerUnit(Terrain.Gold, 30)).toBe(48);
+    expect(ticksPerUnit(Terrain.Forest, 8)).toBe(12);
+    // A farm is slower than a berry bush.
+    expect(ticksPerUnit(Terrain.Field, 30)).toBe(48);
   });
 
   it('turns a worked-out tile into open ground and moves on to the next', () => {
@@ -422,5 +424,117 @@ describe('route searches and a changing map', () => {
       expect(hashWorld(restored)).toBe(hashWorld(world));
     }
     expect(xOf(world, walker)).toBeCloseTo(9.5, 1);
+  });
+});
+
+describe('farms', () => {
+  /** An open field with a town centre, a villager, and wood enough for a few farms. */
+  function homestead(): { world: World; farmer: number } {
+    const world = new World(defaultConfig({ mapWidth: 40, mapHeight: 40, mapState: 'revealed' }));
+    world.spawnBuilding(0, Kind.TownCentre, 10, 10);
+    world.stock.set([0, 300, 0, 0], 0);
+    return { world, farmer: villager(world, 14.5, 10.5) };
+  }
+  const farmOf = (world: World): number =>
+    world.livingEntities(0).find((id) => world.entityType[entityIndex(id)] === Kind.Farm)!;
+
+  it('are built like any building, and then become tilled ground that can be walked over', () => {
+    const { world, farmer } = homestead();
+    send(world, 0, { kind: 'build', units: [farmer], buildingType: Kind.Farm, tileX: 18, tileY: 10 });
+    run(world, 5);
+    expect(stock(world, Resource.Wood)).toBe(225);
+    // While it is a site it is in the way, like any other.
+    expect(world.map.isPassable(18, 10)).toBe(false);
+    const farm = farmOf(world);
+    run(world, 900, () => world.built[entityIndex(farm)] === 1);
+    expect(world.built[entityIndex(farm)]).toBe(1);
+    for (let ty = 9; ty <= 11; ty++) {
+      for (let tx = 17; tx <= 19; tx++) {
+        expect(world.map.terrain[ty * 40 + tx]).toBe(Terrain.Field);
+        expect(world.map.isPassable(tx, ty)).toBe(true);
+      }
+    }
+    // Nothing else can be built on it.
+    send(world, 0, { kind: 'build', units: [farmer], buildingType: Kind.House, tileX: 18, tileY: 10 });
+    run(world, 5);
+    expect(world.livingEntities(0).filter((id) => world.mobile[entityIndex(id)] === 0).length).toBe(2);
+    // A soldier marches straight across.
+    const spear = world.spawnUnit(0, Kind.Spearman, fromFloat(18.5), fromFloat(6.5));
+    send(world, 0, { kind: 'move', units: [spear], x: fromFloat(18.5), y: fromFloat(14.5) });
+    let crossed = false;
+    run(world, 600, () => {
+      crossed ||= Math.abs(yOf(world, spear) - 10.5) < 0.3 && Math.abs(xOf(world, spear) - 18.5) < 0.6;
+      return world.moveState[entityIndex(spear)] === MoveState.Idle;
+    });
+    expect(crossed).toBe(true);
+  });
+
+  it('are farmed at once by whoever built them, and the food never runs out', () => {
+    const { world, farmer } = homestead();
+    send(world, 0, { kind: 'build', units: [farmer], buildingType: Kind.Farm, tileX: 18, tileY: 10 });
+    run(world, 900, () => jobOf(world, farmer) === Job.Harvesting);
+    expect(jobOf(world, farmer)).toBe(Job.Harvesting);
+    // The farmer stands on the farm itself, just south of the middle.
+    expect(Math.floor(xOf(world, farmer))).toBe(18);
+    expect(Math.floor(yOf(world, farmer))).toBe(11);
+    const before = resourceTotals(world);
+    run(world, 30 * 240);
+    // Four minutes of farming: about 150 units grown at one every 1.6 seconds, less the walking.
+    expect(stock(world, Resource.Food)).toBeGreaterThan(90);
+    expect(stock(world, Resource.Food)).toBeLessThan(150);
+    expect(world.grown[Resource.Food]).toBeGreaterThanOrEqual(stock(world, Resource.Food));
+    expect(world.map.amount[10 * 40 + 18]).toBe(1);
+    expect(resourceTotals(world)).toEqual(before);
+  });
+
+  it('take one farmer each: a second villager sent to the same farm finds another, or stands down', () => {
+    const { world, farmer } = homestead();
+    const second = villager(world, 14.5, 12.5);
+    send(world, 0, { kind: 'build', units: [farmer], buildingType: Kind.Farm, tileX: 18, tileY: 10 });
+    run(world, 900, () => jobOf(world, farmer) === Job.Harvesting);
+    const middle = 10 * 40 + 18;
+    send(world, 0, { kind: 'gather', units: [second], tile: middle });
+    run(world, 300);
+    expect(jobOf(world, second)).toBe(Job.None);
+    expect(jobOf(world, farmer)).toBe(Job.Harvesting);
+    // With a second farm near by, the same order sends them there instead.
+    world.spawnBuilding(0, Kind.Farm, 18, 14);
+    send(world, 0, { kind: 'gather', units: [second], tile: middle });
+    run(world, 600, () => jobOf(world, second) === Job.Harvesting);
+    expect(world.jobTile[entityIndex(second)]).toBe(14 * 40 + 18);
+    // Only the middle of a farm can be worked.
+    const third = villager(world, 14.5, 8.5);
+    send(world, 0, { kind: 'gather', units: [third], tile: 9 * 40 + 17 });
+    run(world, 200);
+    expect(jobOf(world, third)).toBe(Job.None);
+  });
+
+  it('go back to grass when destroyed, and the farmer looks for other work', () => {
+    const { world, farmer } = homestead();
+    send(world, 0, { kind: 'build', units: [farmer], buildingType: Kind.Farm, tileX: 18, tileY: 10 });
+    run(world, 900, () => jobOf(world, farmer) === Job.Harvesting);
+    send(world, 0, { kind: 'demolish', targets: [farmOf(world)] });
+    run(world, 120);
+    for (let ty = 9; ty <= 11; ty++) for (let tx = 17; tx <= 19; tx++) expect(world.map.terrain[ty * 40 + tx]).toBe(Terrain.Grass);
+    expect(jobOf(world, farmer)).not.toBe(Job.Harvesting);
+    expect(regionsAreRight(world)).toBe(true);
+  });
+
+  it('come back from a saved game as fields, not walls', () => {
+    const { world, farmer } = homestead();
+    send(world, 0, { kind: 'build', units: [farmer], buildingType: Kind.Farm, tileX: 18, tileY: 10 });
+    run(world, 1200, () => stock(world, Resource.Food) >= 10);
+    world.spawnBuilding(0, Kind.Farm, 25, 25, false); // and a second, still a site
+    const restored = restoreSnapshot(JSON.parse(JSON.stringify(takeSnapshot(world))));
+    expect(hashWorld(restored)).toBe(hashWorld(world));
+    expect(restored.map.isPassable(18, 10)).toBe(true);
+    expect(restored.map.isPassable(25, 25)).toBe(false);
+    expect(Array.from(restored.grown)).toEqual(Array.from(world.grown));
+    for (let i = 0; i < 300; i++) {
+      step(world);
+      step(restored);
+    }
+    expect(hashWorld(restored)).toBe(hashWorld(world));
+    expect(brokenInvariant(restored)).toBeNull();
   });
 });

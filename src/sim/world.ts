@@ -9,7 +9,7 @@
 
 import { CommandQueue } from './commands';
 import { HALF, ONE, type Fixed } from './fixed';
-import type { GameMap } from './map';
+import { Terrain, type GameMap } from './map';
 import { buildMap, type MapSpec } from './mapgen';
 import { Rng } from './rng';
 import { SearchScratch, type Search } from './search';
@@ -314,6 +314,8 @@ export class World {
   readonly spent: Int32Array;
   /** Resources that were on the backs of villagers when they were killed, by kind. */
   readonly lost: Int32Array;
+  /** Resources that came from nowhere but work: food grown on farms. */
+  readonly grown: Int32Array;
   /** Which side each player is on. */
   readonly team: Uint8Array;
 
@@ -452,6 +454,7 @@ export class World {
     this.stock = new Int32Array(config.playerCount * RESOURCE_COUNT);
     this.spent = new Int32Array(config.playerCount * RESOURCE_COUNT);
     this.lost = new Int32Array(RESOURCE_COUNT);
+    this.grown = new Int32Array(RESOURCE_COUNT);
     this.team = new Uint8Array(config.playerCount);
     for (let player = 0; player < config.playerCount; player++) {
       const side = config.teams[player];
@@ -601,7 +604,8 @@ export class World {
       this.hp[slot] = siteHp(entityType);
     }
     const half = type.footprint >> 1;
-    this.map.setBuilding(tileX - half, tileY - half, type.footprint, true);
+    if (finished && type.farm) this.tillFarm(slot);
+    else this.map.setBuilding(tileX - half, tileY - half, type.footprint, true);
     lookAround(this, slot);
     return this.idAt(slot);
   }
@@ -619,16 +623,38 @@ export class World {
     const type = ENTITY_TYPES[this.entityType[slot]!]!;
     if (type.building) {
       const half = type.footprint >> 1;
-      this.map.setBuilding(
-        (this.posX[slot]! >> 16) - half,
-        (this.posY[slot]! >> 16) - half,
-        type.footprint,
-        false,
-      );
+      const left = (this.posX[slot]! >> 16) - half;
+      const top = (this.posY[slot]! >> 16) - half;
+      if (type.farm && this.built[slot] === 1) {
+        // A farm that is destroyed goes back to grass.
+        for (let ty = top; ty < top + type.footprint; ty++) {
+          for (let tx = left; tx < left + type.footprint; tx++) this.map.setTerrain(ty * this.map.width + tx, Terrain.Grass, 0);
+        }
+      }
+      this.map.setBuilding(left, top, type.footprint, false);
     }
     this.alive[slot] = 0;
     this.generation[slot] = (this.generation[slot]! + 1) & GENERATION_MASK;
     this.freeSlots.push(slot);
+  }
+
+  /**
+   * Turns a finished farm's plot into tilled ground. The site blocked the
+   * way while it was being built; the farm does not. Its crop is gathered
+   * from the tile at its centre, which is the only one that holds any.
+   */
+  tillFarm(slot: number): void {
+    const { map } = this;
+    const footprint = ENTITY_TYPES[this.entityType[slot]!]!.footprint;
+    const half = footprint >> 1;
+    const cx = this.posX[slot]! >> 16;
+    const cy = this.posY[slot]! >> 16;
+    map.setBuilding(cx - half, cy - half, footprint, false);
+    for (let ty = cy - half; ty <= cy + half; ty++) {
+      for (let tx = cx - half; tx <= cx + half; tx++) {
+        map.setTerrain(ty * map.width + tx, Terrain.Field, tx === cx && ty === cy ? 1 : 0);
+      }
+    }
   }
 
   isAlive(id: EntityId): boolean {
