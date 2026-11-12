@@ -63,6 +63,10 @@ Firefox or Safari.
 The work has moved here from the cloud workspace. It runs Windows 11 and has
 Git and Node.js 26 (installed with `winget`). No game engine is installed yet.
 
+The project lives in `C:\dev\rts_1`. Keep it, and any engine project, out of
+folders that OneDrive syncs: an engine project holds many thousands of
+generated files that a syncing folder handles badly.
+
 To put the game in front of the owner, start the `game` entry in
 `.claude/launch.json` (the same as `npm run dev`) and open
 `http://localhost:5173/playtest`.
@@ -130,6 +134,3 @@ and siege; garrisoning; civilizations; victory conditions in the simulation.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
   what budget.
 - Whether to go ahead with Unity 6, now that the work is on their computer.
-- Whether to move the project folder out of OneDrive before the engine work.
-  Claude recommends it: Unity projects hold many thousands of generated files
-  that a syncing folder handles badly.
