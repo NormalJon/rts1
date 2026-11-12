@@ -15,9 +15,9 @@ about moving to a game engine.
 
 ## How we work
 
-- One step at a time. Each step is built on its own branch (`step-8-ages` and
-  so on), pushed, and merged into `main` only when the owner says to. No pull
-  requests unless asked for.
+- One step at a time. Each step is built on its own branch (`step-8-ages`,
+  then `step-9-csharp-port`, and so on), pushed, and merged into `main` only
+  when the owner says to. No pull requests unless asked for.
 - Commit and push before ending a turn. Nothing should exist only on one machine.
 - This is an original game in a familiar genre. Do not copy another game's
   names, art, maps or look.
@@ -37,18 +37,12 @@ The core build is finished in TypeScript, in eight steps:
 7. Skirmish AI (and farms)
 8. Ages and technology
 
-Steps 1 to 8 are on `main`.
+All eight steps are on `main`.
 
 Checks that must stay green: `npm test` (253 tests), `npm run typecheck`, and
 `npm run check:browser`. The reference match must hash to `8faaf6a6`
 (`test/determinism.test.ts` and `scripts/browser-check.mjs`); change that
 number only when a change in how matches play out is intended.
-
-`npm run check:browser` needs Playwright, which is not in `package.json`, so
-on a machine without it the script stops with "Cannot find module
-'playwright'". Until that is put right the same check can be made by hand:
-bundle the reference match as the script does, load it in a browser, and read
-`__referenceChecksum`.
 
 Checked on the owner's computer in November 2026: `npm test` and
 `npm run typecheck` pass under Node.js 26, and the reference match gave
@@ -60,21 +54,27 @@ Firefox or Safari.
 
 ## The owner's computer
 
-The work has moved here from the cloud workspace. It runs Windows 11 and has
-Git and Node.js 26 (installed with `winget`). No game engine is installed yet.
+The work has moved here from the cloud workspace.
 
-The project lives in `C:\dev\rts_1`. Keep it, and any engine project, out of
-folders that OneDrive syncs: an engine project holds many thousands of
-generated files that a syncing folder handles badly.
-
-To put the game in front of the owner, start the `game` entry in
-`.claude/launch.json` (the same as `npm run dev`) and open
-`http://localhost:5173/playtest`.
-
-Git has no author name or email set on this computer. Commits so far are made
-as `Claude <noreply@anthropic.com>`, like the rest of the history. If the
-owner wants their own name on commits, use their GitHub "noreply" address, not
-a personal one.
+- Windows 11 with a strong NVIDIA graphics card, Git, and Node.js 26
+  (installed with `winget`). Work runs there in local sessions of the Claude
+  desktop app, so the engine can be run and looked at. No game engine is
+  installed yet.
+- The project lives in `C:\dev\rts_1`. Keep it, and any engine project,
+  outside folders that OneDrive syncs. The project's packages are many small
+  files, and Unity copes with a synced folder worse still.
+- To put the game in front of the owner, start the `game` entry in
+  `.claude/launch.json` (the same as `npm run dev`) and open
+  `http://localhost:5173/playtest`.
+- Git has no author name or email set there. Commits so far are made as
+  `Claude <noreply@anthropic.com>`, like the rest of the history. If the owner
+  wants their own name on commits, use GitHub's private "noreply" address as
+  the author email, because the repository is public.
+- `npm run check:browser` needs Playwright, which is not among the project's
+  packages (the cloud workspace had it preinstalled), so the script stops with
+  "Cannot find module 'playwright'". Install it, or make the same check by
+  hand: bundle the reference match as the script does, load it in a browser,
+  and read `__referenceChecksum`.
 
 ## Decided: moving to a game engine
 
@@ -100,7 +100,7 @@ anything.
 input. It never decides what happens in a match: no engine physics, pathfinding
 or timers in game rules.
 
-**Order of work**
+**Order of work** (the first of these is step 9 of the build)
 
 1. Port `src/sim` and `src/ai` to a C# class library with no engine code in
    it, so the same library serves Unity or Godot. Proof of the port: matches
@@ -131,6 +131,7 @@ and siege; garrisoning; civilizations; victory conditions in the simulation.
 
 ## Waiting on the owner
 
+- A plain yes to Unity 6 before it is installed. The C# port does not depend
+  on the answer.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
-  what budget.
-- Whether to go ahead with Unity 6, now that the work is on their computer.
+  what budget. Not needed until the graphics pass, but worth looking early.
