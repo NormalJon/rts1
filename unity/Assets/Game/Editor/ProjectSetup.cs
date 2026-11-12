@@ -328,24 +328,4 @@ namespace Rts.Game.EditorTools
         }
     }
 
-    /// <summary>
-    /// Opens the match scene when the editor starts with nothing open, so that
-    /// pressing Play shows the game and not an empty world.
-    /// </summary>
-    [InitializeOnLoad]
-    static class OpenMatchScene
-    {
-        static OpenMatchScene()
-        {
-            if (Application.isBatchMode) return;
-            EditorApplication.delayCall += () =>
-            {
-                if (EditorApplication.isPlayingOrWillChangePlaymode) return;
-                Scene active = SceneManager.GetActiveScene();
-                bool nothingOpen = string.IsNullOrEmpty(active.path) && !active.isDirty;
-                bool sampleOpen = active.path.EndsWith("SampleScene.unity");
-                if ((nothingOpen || sampleOpen) && File.Exists(ProjectSetup.SCENE)) EditorSceneManager.OpenScene(ProjectSetup.SCENE);
-            };
-        }
-    }
 }
