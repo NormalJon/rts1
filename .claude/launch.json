@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "game",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/pages.mjs", "--serve"],
+      "port": 5173
+    }
+  ]
+}

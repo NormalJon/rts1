@@ -37,16 +37,40 @@ The core build is finished in TypeScript, in eight steps:
 7. Skirmish AI (and farms)
 8. Ages and technology
 
-Steps 1 to 7 are on `main`. Step 8 is on `step-8-ages`, finished and pushed,
-waiting for the owner to say merge. (Delete this sentence once it is merged.)
+Steps 1 to 8 are on `main`.
 
 Checks that must stay green: `npm test` (253 tests), `npm run typecheck`, and
 `npm run check:browser`. The reference match must hash to `8faaf6a6`
 (`test/determinism.test.ts` and `scripts/browser-check.mjs`); change that
 number only when a change in how matches play out is intended.
 
-Never checked: frame rate on a real graphics card (the cloud workspace drew in
-software), and determinism in Firefox or Safari.
+`npm run check:browser` needs Playwright, which is not in `package.json`, so
+on a machine without it the script stops with "Cannot find module
+'playwright'". Until that is put right the same check can be made by hand:
+bundle the reference match as the script does, load it in a browser, and read
+`__referenceChecksum`.
+
+Checked on the owner's computer in November 2026: `npm test` and
+`npm run typecheck` pass under Node.js 26, and the reference match gave
+`8faaf6a6` in Node.js and, by hand, in Chromium 156. The opening scene of the
+playtest held 144 frames a second on a dedicated graphics card.
+
+Never checked: frame rate in a large late-game battle, and determinism in
+Firefox or Safari.
+
+## The owner's computer
+
+The work has moved here from the cloud workspace. It runs Windows 11 and has
+Git and Node.js 26 (installed with `winget`). No game engine is installed yet.
+
+To put the game in front of the owner, start the `game` entry in
+`.claude/launch.json` (the same as `npm run dev`) and open
+`http://localhost:5173/playtest`.
+
+Git has no author name or email set on this computer. Commits so far are made
+as `Claude <noreply@anthropic.com>`, like the rest of the history. If the
+owner wants their own name on commits, use their GitHub "noreply" address, not
+a personal one.
 
 ## Decided: moving to a game engine
 
@@ -103,7 +127,9 @@ and siege; garrisoning; civilizations; victory conditions in the simulation.
 
 ## Waiting on the owner
 
-- Is the computer Windows or Mac?
 - Where the art comes from: bought packs or a commissioned artist, and roughly
   what budget.
-- Whether to merge step 8.
+- Whether to go ahead with Unity 6, now that the work is on their computer.
+- Whether to move the project folder out of OneDrive before the engine work.
+  Claude recommends it: Unity projects hold many thousands of generated files
+  that a syncing folder handles badly.
