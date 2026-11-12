@@ -54,9 +54,27 @@ yet merged. What is on it:
 `csharp/README.md` says how the port is laid out, the rules its code keeps
 to, and what has not been checked. Read it before changing anything there.
 
+The C# library's own rule-by-rule tests are on the branch
+`step-9-csharp-rule-tests`, cut from `step-9-csharp-port`, pushed and not yet
+merged. Merging it brings step 9 with it. What it adds, all in
+`csharp/Rts.Core.Tests` (nothing in `src/` or `csharp/Rts.Core` was touched):
+
+- `Helpers.cs`: the checks of `test/helpers.ts` (resources conserved, map
+  regions right, buildings and fields match the map, groups counted right, no
+  arrow overdue, vision counted right), run after every tick of every
+  recorded match by `InvariantTests`.
+- `Rules/`: 235 of the TypeScript unit tests translated one for one, a file
+  for each file in `test/`. All passed as translated: no rule was found on
+  which the C# differs from the TypeScript. `csharp/README.md` lists what
+  could not be translated and why.
+
+New rules are to be written in C# with tests in `Rules/` in the same style,
+and what must always be true of them added to `Helpers.BrokenInvariant`.
+
 Checks that must stay green: `npm test` (257 tests), `npm run typecheck`,
 `npm run check:browser`, `npm run check:recordings`, and
-`dotnet test csharp/Rts.slnx` (43 tests). The reference match must hash to
+`dotnet test csharp/Rts.slnx` (289 tests on `step-9-csharp-rule-tests`, about
+half a minute with `-c Release`; 43 before it). The reference match must hash to
 `8faaf6a6` (`test/determinism.test.ts`, `scripts/browser-check.mjs`,
 `test/recordings.test.ts` and `csharp/Rts.Core.Tests/ReplayTests.cs`); change
 that number only when a change in how matches play out is intended, and then
@@ -69,6 +87,9 @@ playtest held 144 frames a second on a dedicated graphics card.
 
 Checked there on 12 November 2026: all of the checks above except
 `check:browser`, and the C# tests again with overflow checking switched on.
+Checked again the same day with the rule-by-rule tests added: the same
+checks, the 289 C# tests with overflow checking on, and that the new tests
+fail when a rule in a copy of the library is changed.
 
 Never checked: frame rate in a large late-game battle; determinism in Firefox
 or Safari; and the C# library inside a game engine, on a Mac, or on any
@@ -160,7 +181,9 @@ the fuller list of rules that came out of the work)
 
 ## Waiting on the owner
 
-- Whether to merge `step-9-csharp-port` into `main`.
+- Whether to merge `step-9-csharp-port` into `main`, and
+  `step-9-csharp-rule-tests` after it (or that one alone, which contains the
+  other).
 - A plain yes to Unity 6 before it is installed. The C# port does not depend
   on the answer.
 - Where the art comes from: bought packs or a commissioned artist, and roughly

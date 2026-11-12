@@ -19,7 +19,7 @@ npm run build          # writes dist/playtest.html and dist/tick-rate-lab.html
 npm run check:browser  # reference match must give the same checksum in a browser
 npm run record         # play the reference matches and write them to recordings/
 npm run check:recordings  # play them again and compare with what is on disk
-dotnet test csharp/Rts.slnx  # the C# port must replay every recording exactly (needs the .NET SDK)
+dotnet test csharp/Rts.slnx  # the C# port must replay every recording exactly and pass its own rule-by-rule tests (needs the .NET SDK)
 ```
 
 ## Layout
@@ -34,7 +34,7 @@ dotnet test csharp/Rts.slnx  # the C# port must replay every recording exactly (
 | `test/` | Vitest suites. `helpers.ts` plays randomised matches for the determinism tests; `recordings.ts` says which matches are recorded for the C# port. |
 | `scripts/` | Page build, the cross-browser checksum check, and the match recorder. |
 | `recordings/` | Ten matches played by this TypeScript game and written down in full: settings, every command, and the checksum after every tick. The C# port is held to them. |
-| `csharp/` | The simulation and the AI again in C#, as a library with no engine code, and the tests that replay the recordings. See `csharp/README.md`. |
+| `csharp/` | The simulation and the AI again in C#, as a library with no engine code, the tests that replay the recordings, and the tests in `test/` translated rule by rule. See `csharp/README.md`. |
 | `art-pipeline/` | Generates the models the playtest uses, with its own `package.json`. |
 | `docs/art-sources.md` | Survey of openly licensed art sources, with licence checks. |
 

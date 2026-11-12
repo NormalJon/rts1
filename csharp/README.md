@@ -12,11 +12,17 @@ It is .NET Standard 2.1 and C# 9, which Unity 6 and Godot 4 (.NET) both accept.
 
 ```bash
 dotnet test csharp/Rts.slnx              # build, then run every check below
-dotnet test csharp/Rts.slnx -c Release   # the same, about three times as fast
+dotnet test csharp/Rts.slnx -c Release   # the same, several times as fast: about half a minute
 ```
 
 Needs the .NET SDK (version 10 was used). The tests read the files in
 `recordings/` at the top of the repository.
+
+There are two kinds of test. The first kind holds the C# to the TypeScript by
+whole matches and recorded figures, and says only that something differs and
+on which tick. The second kind (`Rts.Core.Tests/Rules/`) is the TypeScript's
+own unit tests translated one for one: each sets up a small situation and
+checks one rule, so when something is wrong it names the rule.
 
 ## How it is known to be the same game
 
@@ -33,6 +39,8 @@ world checksum after every tick. The tests here hold the C# to those files.
 | `MapTests` | Ten maps agree tile for tile, and 90 route searches on them find the same routes after the same amount of work. Two of the maps are ones on which the generator has to cut a way through between the two starts. |
 | `TableTests` | Every technology is written down as in the TypeScript, description included; each one alone, and all of them together, make the same of every unit and building; and everything takes the same number of ticks at every tick rate from 1 to 120. No one match researches everything or runs at every rate. |
 | `WorldTests` | The world's own bookkeeping, as in the TypeScript tests of the same name: slots are reused safely, a save restores free slots and generations, a dead unit gives up its place in a group, a full world says so, and settings the TypeScript refuses are refused here. |
+| `InvariantTests` | Every recorded match is played back and, after every tick, held to what must always be true (`Helpers.BrokenInvariant`, ported from `test/helpers.ts`): no resource is made or lost, the map's record of what connects to what is right, buildings and tilled ground match the map, every shared order counts its units correctly, no arrow is overdue, nobody stands in an obstacle, and each side is counted as seeing exactly what it can see. One more test spoils a world four ways to show the checks notice. |
+| `Rules/` | The TypeScript unit tests, translated: 235 of them. See below. |
 
 The ten matches: the reference match and the same with pathfinding starved;
 random orders from the first age on a larger map; on a hand-drawn map with
@@ -47,6 +55,88 @@ Both of the main tests have been seen to fail when they should. With one
 combat distance changed by a tile, six of the matches reported the first tick
 that differed; with one AI distance changed by a tile, all three AI matches
 named the first order that differed.
+
+## The rule-by-rule tests
+
+`Rts.Core.Tests/Rules/` has one C# file for each TypeScript test file, with
+the tests in the same order. A `describe` block there is a class here, and a
+test keeps its name in plain words: `it('walks round a wall to reach the
+other side')` under `describe('a single unit')` is
+`ASingleUnit.WalksRoundAWallToReachTheOtherSide`.
+
+| TypeScript | C# | Tests |
+|---|---|---|
+| `test/fixed.test.ts` | `Rules/FixedRuleTests.cs` | 11 |
+| `test/rng.test.ts` | `Rules/RngRuleTests.cs` | 6 |
+| `test/map.test.ts` | `Rules/MapRuleTests.cs` | 21 |
+| `test/pathfinding.test.ts` | `Rules/PathfindingRuleTests.cs` | 8 |
+| `test/movement.test.ts` | `Rules/MovementRuleTests.cs` | 22 |
+| `test/commands.test.ts` | `Rules/CommandsRuleTests.cs` | 14 |
+| `test/economy.test.ts` | `Rules/EconomyRuleTests.cs` | 24 |
+| `test/buildings.test.ts` | `Rules/BuildingsRuleTests.cs` | 31 |
+| `test/combat.test.ts` | `Rules/CombatRuleTests.cs` | 46 |
+| `test/vision.test.ts` | `Rules/VisionRuleTests.cs` | 19 |
+| `test/tech.test.ts` | `Rules/TechRuleTests.cs` | 24 |
+| `test/ai.test.ts` | `Rules/AiRuleTests.cs` | 5 |
+| `test/determinism.test.ts` | `Rules/DeterminismRuleTests.cs`, and the tests named at the top of that file | 4 here, 10 elsewhere |
+| `test/helpers.ts` | `Helpers.cs` | (the checks the others use) |
+
+`Rules/Scenario.cs` holds what the TypeScript files each repeat at the top: a
+small world drawn by hand, a way to give an order, and `Run`, which plays
+ticks and checks after every one that nothing that must always hold is broken.
+
+Every one of them passed the first time it was run: translating the tests
+turned up no rule on which the C# and the TypeScript differ. They have been
+seen to fail when they should. In a copy of the library, a spearman's blow
+changed from 8 to 9 failed ten tests, each naming a rule about blows or
+battles; soldiers noticing enemies at nine tiles instead of eight failed
+"does not notice an enemy further off than eight tiles"; and mending made a
+sixth faster failed "are mended by villagers, slowly".
+
+New rules (walls, siege, garrisons, civilizations, victory) are written in C#
+first from now on. Give each its tests here, in the same style, and add what
+must always be true of it to `Helpers.BrokenInvariant`.
+
+### What was not translated, and why
+
+Whole files:
+
+- `test/determinism-lint.test.ts` (4 tests) reads the TypeScript source to
+  enforce the rules for simulation code. Nothing reads the C# source that
+  way; its rules are kept by reading, and by the run with overflow checking.
+- `test/stepper.test.ts` (4 tests): `stepper.ts` is not ported (see Layout).
+- `test/recordings.test.ts` (4 tests) is about the TypeScript recorder and
+  its files. Its C# counterpart is `ReplayTests`.
+- `playRandomMatch` in `test/helpers.ts`, which plays a match of random
+  orders. The matches it played are in `recordings/` and stand in for it, so
+  the C# has no way to make up a *new* random match. Two tests of
+  `determinism.test.ts` change shape because of that: "actually exercises the
+  simulation" tallies three recorded matches (the reference match and two
+  random ones on other settings) where the TypeScript plays the reference
+  settings three times, and "diverges when anything about the inputs
+  differs" gives the same orders on another seed's map where the TypeScript
+  has the random player play again.
+
+Parts of tests, because a C# command has typed fields and cannot hold them:
+
+- Commands with text, a fraction or "not a number" where a whole number
+  belongs, a command with no kind, and a bare word in place of a command
+  ("survives malformed commands" in `commands.test.ts`: of ten pieces of
+  nonsense, the ones kept are a missing list, handles that are negative or
+  far out of range, a unit type and a kind of command that do not exist, no
+  command at all, and players who do not exist).
+- A gather order with a fraction for its tile or no tile at all, and a
+  delivery whose target is a word (`economy.test.ts`).
+- A building plot at tile 2.5 or at "not a number", a place 2.5 in a
+  training queue, a handle of a million million, and the word "all" in place
+  of a list of buildings (`buildings.test.ts`; a missing list is sent
+  instead of the word, and the largest whole number instead of the handle).
+- A random-number bound of 1.5 (`rng.test.ts`).
+
+One thing in several files: the TypeScript writes a saved game out as JSON
+and reads it back before loading it. The C# library has no JSON in it, so
+here the save is loaded as it is. Whatever writes saved games to disk for the
+engine will need its own test that a save survives the round trip.
 
 ## Layout
 
@@ -90,9 +180,12 @@ particular to C#.
   random numbers, `| 0` in the TypeScript, narrowing into a byte or ushort
   column), the code says `unchecked`. The tests pass with overflow checking
   switched on for the whole library, which shows that nothing else overflows
-  in the recorded matches. Keep it that way: run
-  `dotnet test csharp/Rts.slnx --no-incremental -p:CheckForOverflowUnderflow=true`
-  after changing arithmetic.
+  in the recorded matches or in the rule-by-rule tests. Keep it that way:
+  after changing arithmetic, run
+  `dotnet build csharp/Rts.slnx --no-incremental -p:CheckForOverflowUnderflow=true`
+  and then `dotnet test csharp/Rts.slnx --no-build` (about three minutes),
+  and build again in the ordinary way afterwards. (`dotnet test` itself does
+  not take `--no-incremental` in SDK 10.)
 - **No order from a `Dictionary` or `HashSet`.** They are used only to look
   things up. Anything read in order is a list: the move groups (`GroupMap` in
   `World.cs`), the route queue, the AI's remembered buildings.
@@ -123,7 +216,8 @@ change to how matches play out is made in both, in step:
 1. Change the TypeScript and its tests. The reference checksum in
    `test/determinism.test.ts` will move if behaviour did.
 2. `npm run record` to write the recordings again.
-3. Make the same change here until `dotnet test csharp/Rts.slnx` passes.
+3. Make the same change here, and to the translated tests in `Rules/`, until
+   `dotnet test csharp/Rts.slnx` passes.
 
 ## Not checked
 
@@ -140,14 +234,16 @@ change to how matches play out is made in both, in step:
   whole number or a list should be; in C# its fields are typed, so whatever
   reads commands from a file or the network must reject those before they
   reach the simulation.
-- Rule by rule. The 253 TypeScript unit tests were not translated. The C# is
-  held to the TypeScript by whole matches and by the recorded figures, so a
-  rule that none of them reaches is checked only by reading the two files
-  against each other. A coverage tool
-  (`dotnet test csharp/Rts.slnx --collect:"XPlat Code Coverage"`, which takes
-  about a quarter of an hour) showed the tests running 97.3 per cent of the
-  library's lines before the scenario match, the two extra maps and the table
-  figures were added to reach more of them. What is still never run:
+- What the rule-by-rule tests leave out (listed above), and saved games
+  written to text and read back.
+- Lines no test runs. A rule that no recorded match and no translated test
+  reaches is checked only by reading the two files against each other. A
+  coverage tool (`dotnet test csharp/Rts.slnx --collect:"XPlat Code Coverage"`,
+  which takes about a quarter of an hour) showed the tests running 97.3 per
+  cent of the library's lines before the scenario match, the two extra maps,
+  the table figures and the rule-by-rule tests were added to reach more of
+  them. What was never run when that was last looked at, before the
+  rule-by-rule tests:
   - in `Combat.cs`, a unit that finds itself inside the outline of the
     building it is attacking stepping out sideways (`FindPlaceBeside`);
   - in `Movement.cs`, a unit on a flow field whose group or field has gone

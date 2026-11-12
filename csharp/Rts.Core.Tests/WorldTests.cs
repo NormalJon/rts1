@@ -56,6 +56,7 @@ namespace Rts.Tests
             Assert.Equal(2, world.groups.Values[0].refs);
             world.Destroy(a);
             Assert.Equal(1, world.groups.Values[0].refs);
+            Assert.Null(Helpers.BrokenInvariant(world));
             world.Destroy(b);
             Assert.Equal(0, world.groups.Count);
         }
