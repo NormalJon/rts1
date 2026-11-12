@@ -301,7 +301,8 @@ export function brokenInvariant(world: World): string | null {
     if (world.alive[slot] === 0) continue;
     const x = world.posX[slot]!;
     const y = world.posY[slot]!;
-    const type = ENTITY_TYPES[world.entityType[slot]!]!;
+    // Its figures as its owner's research has made them, not as they started.
+    const type = world.typeOf(slot);
     if (world.carry[slot]! > type.carries) return `unit ${slot} carries more than it can`;
     if (world.hp[slot]! <= 0) return `entity ${slot} is alive with ${world.hp[slot]} hit points`;
     if (world.hp[slot]! > type.hp) return `entity ${slot} has more hit points than its kind allows`;

@@ -16,9 +16,11 @@
  *              share the villagers between food and wood (and a little
  *              stone for towers); plant farms when the berries are spoken
  *              for; put a lumber camp by the trees when the walk gets long
- *   the forge  barracks, archery range and stable as the town grows; keep
- *              them training, leaning toward whatever beats the enemy's
- *              soldiers it has seen
+ *   the forge  barracks, archery range, stable and blacksmith as the town
+ *              grows; keep them training, leaning toward whatever beats the
+ *              enemy's soldiers it has seen
+ *   progress   mine gold; choose a reform and move up an age when the town
+ *              can bear the cost; research what its buildings offer
  *   the army   send one scout to find the enemy; gather the rest in front of
  *              the town; come home to fight raiders; when the army is big
  *              enough, march on the nearest enemy building it knows of, and
@@ -32,6 +34,7 @@
 import { canPlace } from '../sim/buildings';
 import type { Command } from '../sim/commands';
 import { ENTITY_TYPES, Kind, POPULATION_LIMIT, Resource, TRAIN_QUEUE_LENGTH } from '../sim/entityTypes';
+import { TechId, TECHS, whyNot } from '../sim/tech';
 import { Terrain } from '../sim/map';
 import { countPopulation } from '../sim/production';
 import { canSee, hasExplored, sees } from '../sim/vision';
@@ -66,6 +69,11 @@ interface Tuning {
   /** Watchtowers it builds at home, and second copies of its military buildings. */
   readonly towers: number;
   readonly doubles: boolean;
+  /** The last age it climbs to, and the villagers it wants before leaving each age. */
+  readonly lastAge: number;
+  readonly ageAt: readonly number[];
+  /** Villagers it keeps on gold once it has a use for it. */
+  readonly goldMiners: number;
 }
 
 const TUNING: Record<Difficulty, Tuning> = {
@@ -82,6 +90,9 @@ const TUNING: Record<Difficulty, Tuning> = {
     counters: false,
     towers: 0,
     doubles: false,
+    lastAge: 1,
+    ageAt: [14, 99, 99],
+    goldMiners: 2,
   },
   standard: {
     thinkSeconds: 1,
@@ -96,6 +107,9 @@ const TUNING: Record<Difficulty, Tuning> = {
     counters: true,
     towers: 1,
     doubles: false,
+    lastAge: 2,
+    ageAt: [18, 24, 99],
+    goldMiners: 3,
   },
   hard: {
     thinkSeconds: 0.5,
@@ -110,17 +124,54 @@ const TUNING: Record<Difficulty, Tuning> = {
     counters: true,
     towers: 2,
     doubles: true,
+    lastAge: 3,
+    ageAt: [16, 24, 32],
+    goldMiners: 5,
   },
 };
 
-/** The soldiers it trains, and what each is good against. */
-const SOLDIERS = [Kind.Spearman, Kind.Archer, Kind.Horseman] as const;
-const BEATS: Record<number, number> = {
-  [Kind.Spearman]: Kind.Horseman,
-  [Kind.Archer]: Kind.Spearman,
-  [Kind.Horseman]: Kind.Archer,
+/** The soldiers it trains: how much of each it likes in an army with no enemy in mind, and what each is good against. */
+const LIKES: Record<number, number> = {
+  [Kind.Spearman]: 4,
+  [Kind.Archer]: 4,
+  [Kind.Horseman]: 2,
+  [Kind.ManAtArms]: 4,
+  [Kind.Knight]: 2,
+  [Kind.Crossbowman]: 2,
+  [Kind.Handgunner]: 3,
 };
-const MILITARY_BUILDINGS: readonly number[] = [Kind.Barracks, Kind.ArcheryRange, Kind.Stable, Kind.Watchtower];
+const BEATS: Record<number, readonly number[]> = {
+  [Kind.Spearman]: [Kind.Horseman, Kind.Knight],
+  [Kind.Archer]: [Kind.Spearman],
+  [Kind.Horseman]: [Kind.Archer, Kind.Crossbowman, Kind.Handgunner],
+  [Kind.ManAtArms]: [Kind.Spearman, Kind.Archer, Kind.Horseman],
+  [Kind.Knight]: [Kind.Archer, Kind.Crossbowman, Kind.Handgunner, Kind.Horseman],
+  [Kind.Crossbowman]: [Kind.ManAtArms],
+  [Kind.Handgunner]: [Kind.ManAtArms, Kind.Archer],
+};
+/** The reform it chooses on leaving each age: more food first, then better soldiers, then guns. */
+const REFORMS = [TechId.OpenFields, TechId.PaidRetinues, TechId.Gunfounding];
+/** What it researches, most wanted first, as its buildings and its age allow. */
+const RESEARCH_ORDER: readonly number[] = [
+  TechId.FellingAxes,
+  TechId.HeavyPlough,
+  TechId.Wheelbarrow,
+  TechId.FireSetting,
+  TechId.HorseCollar,
+  TechId.LongSpears,
+  TechId.SteeledEdges,
+  TechId.MailHauberks,
+  TechId.BodkinPoints,
+  TechId.CouchedLance,
+  TechId.ArrowLoops,
+  TechId.Sawmills,
+  TechId.DrainageAdits,
+  TechId.Pikes,
+  TechId.Longbows,
+  TechId.BlastFurnace,
+  TechId.CoatOfPlates,
+];
+const MILITARY_BUILDINGS: readonly number[] = [Kind.Barracks, Kind.ArcheryRange, Kind.Stable, Kind.Watchtower, Kind.Blacksmith];
 
 /** How far from home an enemy counts as a threat to the town, in tiles. */
 const THREAT_RADIUS = 18;
@@ -186,8 +237,8 @@ export class SkirmishAi implements Controller {
   private farmed = new Set<number>();
   private claimed = new Set<number>();
   private threats: number[] = [];
-  /** Wood being put by for a building it wants and cannot yet pay for. */
-  private saving = 0;
+  /** What is being put by for a building or reform it wants and cannot yet pay for, by resource. */
+  private saving = [0, 0, 0, 0];
 
   constructor(player: number, difficulty: Difficulty = 'standard') {
     this.player = player;
@@ -389,8 +440,8 @@ export class SkirmishAi implements Controller {
 
   /** Founds a building and sets villagers to it. Returns whether it could. */
   private build(kind: number, near: Point, inner: number, outer: number, builders: number, toward?: Point): boolean {
-    const type = ENTITY_TYPES[kind]!;
-    if (!this.canAfford(type.cost)) return false;
+    const type = this.world.types[this.player]![kind]!;
+    if (this.world.age[this.player]! < type.age || !this.canAfford(type.cost)) return false;
     const plot = this.findPlot(kind, near, inner, outer, toward);
     if (plot === null) return false;
     const crew: number[] = [];
@@ -449,7 +500,8 @@ export class SkirmishAi implements Controller {
     // Military buildings, one at a time so the town is not starved to pay
     // for them. If the next one cannot be afforded yet, wood is put by for it
     // instead of all going on soldiers.
-    this.saving = 0;
+    this.saving = [0, 0, 0, 0];
+    const age = world.age[player]!;
     const building = this.sites.some((slot) => MILITARY_BUILDINGS.includes(world.entityType[slot]!));
     if (!building) {
       const want = (kind: number): boolean => this.count(kind) === 0;
@@ -458,6 +510,7 @@ export class SkirmishAi implements Controller {
       if (workers >= tuning.barracksAt && want(Kind.Barracks)) next = Kind.Barracks;
       else if (workers >= tuning.rangeAt && want(Kind.ArcheryRange)) next = Kind.ArcheryRange;
       else if (workers >= tuning.stableAt && want(Kind.Stable)) next = Kind.Stable;
+      else if (age >= 1 && workers >= 18 && want(Kind.Blacksmith)) next = Kind.Blacksmith;
       else if (this.count(Kind.Watchtower) < tuning.towers && workers >= 14 && this.purse[Resource.Stone]! >= 50) {
         next = Kind.Watchtower;
         builders = 1;
@@ -466,9 +519,10 @@ export class SkirmishAi implements Controller {
       }
       if (next !== -1) {
         const near = next === Kind.Watchtower ? 5 : 7;
-        if (!this.build(next, home, near, near + 10, builders, enemy)) this.saving = ENTITY_TYPES[next]!.cost[Resource.Wood];
+        if (!this.build(next, home, near, near + 10, builders, enemy)) this.saving = [...world.types[player]![next]!.cost];
       }
     }
+    this.advance(workers);
 
     // A site nobody is working on gets a builder.
     for (const site of this.sites) {
@@ -495,11 +549,53 @@ export class SkirmishAi implements Controller {
 
   private train(building: number, kind: number): boolean {
     const { world } = this;
-    const cost = ENTITY_TYPES[kind]!.cost;
+    const cost = world.types[this.player]![kind]!.cost;
     if (world.trainLength[building]! >= TRAIN_QUEUE_LENGTH || !this.canAfford(cost)) return false;
     this.spend(cost);
     this.out.push({ kind: 'train', building: world.idAt(building), unitType: kind });
     return true;
+  }
+
+  /**
+   * Progress: a reform when the town is big enough to bear it, and whatever
+   * research its buildings offer. A reform it cannot yet pay for is saved
+   * toward, ahead of soldiers.
+   */
+  private advance(workers: number): void {
+    const { world, player, tuning } = this;
+    const age = world.age[player]!;
+    const hall = this.done.get(Kind.TownCentre)?.[0];
+    if (age < tuning.lastAge && hall !== undefined && workers >= tuning.ageAt[age]!) {
+      const reform = REFORMS[age]!;
+      const why = whyNot(world, player, reform);
+      if (why === null) {
+        const cost = TECHS[reform]!.cost;
+        if (world.trainLength[hall]! < 2 && this.canAfford(cost)) {
+          this.spend(cost);
+          this.out.push({ kind: 'research', building: world.idAt(hall), tech: reform });
+          return;
+        }
+        // Not enough yet. Put it by, on top of anything already being saved for.
+        this.saving = this.saving.map((amount, r) => amount + cost[r]!);
+      }
+    }
+    // Research, one thing each look, out of what is not being saved for something bigger.
+    if (this.threats.length > 0) return;
+    for (const id of RESEARCH_ORDER) {
+      const tech = TECHS[id]!;
+      const at = (this.done.get(tech.at) ?? []).find((slot) => world.trainLength[slot] === 0);
+      if (at === undefined || !this.canAfford(tech.cost) || whyNot(world, player, id) !== null) continue;
+      // What makes the villagers work faster pays for itself and is bought
+      // whenever there is the money. The rest waits until nothing bigger is
+      // being saved for.
+      const pays = tech.effects.some((effect) => 'gather' in effect) || id === TechId.Wheelbarrow;
+      if (!pays && tech.cost.some((amount, r) => amount > 0 && this.purse[r]! - amount < this.saving[r]!)) continue;
+      // Either way, enough food is left that the town does not stop growing for it.
+      if (this.purse[Resource.Food]! - tech.cost[Resource.Food] < 50) continue;
+      this.spend(tech.cost);
+      this.out.push({ kind: 'research', building: world.idAt(at), tech: id });
+      return;
+    }
   }
 
   /** Where the army gathers: a few tiles out from the town on the enemy's side. */
@@ -526,9 +622,15 @@ export class SkirmishAi implements Controller {
     const wood = this.purse[Resource.Wood]!;
     const stoneTile = this.count(Kind.Watchtower) < tuning.towers && workers >= 14 && this.purse[Resource.Stone]! < 50 ? this.nearestResource(Terrain.Stone, home, WORK_RADIUS) : -1;
     const onStone = stoneTile === -1 ? 0 : 2;
+    // Gold pays for reforms, research and armour. It is mined from the time
+    // the town is on its feet, and left alone once there is plenty in hand.
+    const goldTile = workers >= 10 && this.purse[Resource.Gold]! < 500 + this.saving[Resource.Gold]! ? this.nearestResource(Terrain.Gold, home, WORK_RADIUS) : -1;
+    const onGold = goldTile === -1 ? 0 : Math.min(tuning.goldMiners, Math.max(2, (workers - 8) >> 1));
+    const hands = workers - onStone - onGold;
     const share = food > wood + 150 ? 0.4 : wood > food + 150 ? 0.7 : 0.55;
-    const onFood = Math.min(workers - onStone, Math.ceil((workers - onStone) * share));
-    const wanted = [onFood, workers - onStone - onFood, onStone, 0];
+    const onFood = Math.min(hands, Math.ceil(hands * share));
+    const wanted = [onFood, hands - onFood, onStone, onGold];
+    this.wantMiningCamp(home, goldTile, onGold);
 
     const woodFrom = this.woodAnchor(home);
     const woodTile = this.nearestResource(Terrain.Forest, woodFrom, WORK_RADIUS);
@@ -545,9 +647,8 @@ export class SkirmishAi implements Controller {
 
     // A mill in among the farms once there are several, so the outer ones are not a long walk from the stores.
     const farms = this.count(Kind.Farm);
-    if (farms >= FARMS_BEFORE_MILL && this.count(Kind.Mill) + this.siteCount(Kind.Mill) === 0) {
-      this.build(Kind.Mill, home, 8, 13, 1);
-    }
+    const mills = this.count(Kind.Mill) + this.siteCount(Kind.Mill);
+    if (farms >= FARMS_BEFORE_MILL * (mills + 1)) this.build(Kind.Mill, this.foodAnchor(home), 8, 16, 1);
 
     const giveWork = (slot: number, resource: number): boolean => {
       const unit = this.ids([slot]);
@@ -561,6 +662,11 @@ export class SkirmishAi implements Controller {
         this.out.push({ kind: 'gather', units: unit, tile: stoneTile });
         return true;
       }
+      if (resource === Resource.Gold) {
+        if (goldTile === -1) return false;
+        this.out.push({ kind: 'gather', units: unit, tile: goldTile });
+        return true;
+      }
       if (berryRoom > 0) {
         berryRoom--;
         this.out.push({ kind: 'gather', units: unit, tile: berryTile });
@@ -572,9 +678,9 @@ export class SkirmishAi implements Controller {
         return true;
       }
       // No farm free: plant one. Whoever plants it farms it.
-      const cost = ENTITY_TYPES[Kind.Farm]!.cost;
+      const cost = world.types[this.player]![Kind.Farm]!.cost;
       if (!this.canAfford(cost)) return false;
-      const plot = this.findPlot(Kind.Farm, this.foodAnchor(home), 4, 13);
+      const plot = this.findPlot(Kind.Farm, this.foodAnchor(home), 3, 14);
       if (plot === null) return false;
       this.spend(cost);
       this.out.push({ kind: 'build', units: unit, buildingType: Kind.Farm, tileX: plot.x, tileY: plot.y });
@@ -584,7 +690,7 @@ export class SkirmishAi implements Controller {
     // The berries will not last. Plant ahead: when what is left on the bushes
     // would feed the pickers for under two minutes, put one of them to
     // planting a farm each look that there is wood to spare for it.
-    if (this.berryPickers > 0 && this.berryFood(home) < this.berryPickers * 90 && this.purse[Resource.Wood]! >= 125 + this.saving) {
+    if (this.berryPickers > 0 && this.berryFood(home) < this.berryPickers * 90 && this.purse[Resource.Wood]! >= 125 + this.saving[Resource.Wood]!) {
       const picker = this.villagers.find(
         (slot) => !this.claimed.has(slot) && world.jobTerrain[slot] === Terrain.Berries && world.job[slot] === Job.Harvesting,
       );
@@ -599,7 +705,7 @@ export class SkirmishAi implements Controller {
     const have = [...this.gathering];
     const mostNeeded = (): number => {
       let best: number = Resource.Food;
-      for (const resource of [Resource.Wood, Resource.Stone]) {
+      for (const resource of [Resource.Wood, Resource.Stone, Resource.Gold]) {
         if (wanted[resource]! - have[resource]! > wanted[best]! - have[best]!) best = resource;
       }
       return best;
@@ -676,9 +782,10 @@ export class SkirmishAi implements Controller {
     return camp === undefined ? home : { x: tileX(this.world, camp), y: tileY(this.world, camp) };
   }
 
-  /** Farms go round the mill once there are enough of them to need one, else round the town centre. */
+  /** Farms go round the newest mill once there are enough of them to need one, else round the town centre. */
   private foodAnchor(home: Point): Point {
-    const mill = this.done.get(Kind.Mill)?.[0];
+    const mills = this.done.get(Kind.Mill);
+    const mill = mills?.[mills.length - 1];
     return mill === undefined ? home : { x: tileX(this.world, mill), y: tileY(this.world, mill) };
   }
 
@@ -694,6 +801,18 @@ export class SkirmishAi implements Controller {
     if (nearest > LONG_WALK) this.build(Kind.LumberCamp, trees, 2, 6, 1, home);
   }
 
+  /** Builds a mining camp by the gold when the miners have a long walk home with it. */
+  private wantMiningCamp(home: Point, goldTile: number, miners: number): void {
+    const { world } = this;
+    if (goldTile === -1 || miners < 2 || this.siteCount(Kind.MiningCamp) > 0) return;
+    const ore = { x: goldTile % world.map.width, y: Math.floor(goldTile / world.map.width) };
+    let nearest = far(ore.x, ore.y, home.x, home.y);
+    for (const camp of this.done.get(Kind.MiningCamp) ?? []) {
+      nearest = Math.min(nearest, far(ore.x, ore.y, tileX(world, camp), tileY(world, camp)));
+    }
+    if (nearest > LONG_WALK) this.build(Kind.MiningCamp, ore, 2, 6, 1, home);
+  }
+
   /** Keeps the military buildings training, leaning toward what the army is short of. */
   private trainSoldiers(used: number, room: number): void {
     const { world, tuning } = this;
@@ -703,13 +822,14 @@ export class SkirmishAi implements Controller {
     const have = new Map<number, number>();
     let total = 0;
     for (const slot of this.soldiers) have.set(world.entityType[slot]!, (have.get(world.entityType[slot]!) ?? 0) + 1);
-    const makers: { slot: number; kind: number }[] = [];
+    const makers: number[] = [];
     for (const building of [Kind.Barracks, Kind.ArcheryRange, Kind.Stable]) {
       for (const slot of this.done.get(building) ?? []) {
-        const kind = ENTITY_TYPES[building]!.trains[0]!;
-        const queued = world.trainLength[slot]!;
-        have.set(kind, (have.get(kind) ?? 0) + queued);
-        if (queued === 0) makers.push({ slot, kind });
+        for (let k = 0; k < world.trainLength[slot]!; k++) {
+          const queued = world.trainQueue[slot * TRAIN_QUEUE_LENGTH + k]! - 1;
+          if (queued < ENTITY_TYPES.length) have.set(queued, (have.get(queued) ?? 0) + 1);
+        }
+        if (world.trainLength[slot] === 0) makers.push(slot);
       }
     }
     for (const n of have.values()) total += n;
@@ -717,22 +837,34 @@ export class SkirmishAi implements Controller {
 
     // What it would like the army to be made of: a balance, shifted toward
     // whatever beats the enemy soldiers it has seen.
-    const weight = new Map<number, number>(SOLDIERS.map((kind) => [kind, kind === Kind.Horseman ? 2 : 4]));
-    if (tuning.counters) {
-      for (const kind of SOLDIERS) weight.set(kind, weight.get(kind)! + 1.5 * (this.enemyMix.get(BEATS[kind]!) ?? 0));
-    }
-    makers.sort((a, b) => {
-      const short = (m: { kind: number }): number => weight.get(m.kind)! / ((have.get(m.kind) ?? 0) + 1);
-      return short(b) - short(a) || a.slot - b.slot;
-    });
-    // With raiders in the town, nothing is held back.
-    const saving = this.threats.length > 0 ? 0 : this.saving;
+    const types = world.types[this.player]!;
+    const age = world.age[this.player]!;
+    // Saving for a building or a reform must not leave the town naked: money
+    // is held back from soldiers only once there is a garrison of six, and
+    // never with raiders in the town.
+    const saving = this.threats.length > 0 || total < Math.min(6, this.waveSize) ? [0, 0, 0, 0] : this.saving;
+    const rich = this.purse[Resource.Gold]! > 250 + saving[Resource.Gold]!;
+    const weight = (kind: number): number => {
+      // With gold to spare, it goes on the soldiers gold buys.
+      let w = (LIKES[kind] ?? 1) * (rich && types[kind]!.cost[Resource.Gold] > 0 ? 2 : 1);
+      if (tuning.counters) for (const victim of BEATS[kind] ?? []) w += 1.5 * (this.enemyMix.get(victim) ?? 0);
+      return w / ((have.get(kind) ?? 0) + 1);
+    };
     for (const maker of makers) {
       if (total >= tuning.army) break;
-      const cost = ENTITY_TYPES[maker.kind]!.cost;
-      if (this.purse[Resource.Food]! - cost[Resource.Food]! < reserve) continue;
-      if (this.purse[Resource.Wood]! - cost[Resource.Wood]! < saving) continue;
-      if (this.train(maker.slot, maker.kind)) total++;
+      // Of what this building trains in this age and the purse will stretch to, the kind the army is shortest of.
+      let best = -1;
+      for (const kind of world.typeOf(maker).trains) {
+        const cost = types[kind]!.cost;
+        if (types[kind]!.age > age || !this.canAfford(cost)) continue;
+        if (this.purse[Resource.Food]! - cost[Resource.Food] < reserve) continue;
+        if (cost.some((amount, r) => amount > 0 && this.purse[r]! - amount < saving[r]!)) continue;
+        if (best === -1 || weight(kind) > weight(best)) best = kind;
+      }
+      if (best !== -1 && this.train(maker, best)) {
+        have.set(best, (have.get(best) ?? 0) + 1);
+        total++;
+      }
     }
   }
 
@@ -898,7 +1030,7 @@ export class SkirmishAi implements Controller {
     const inSight = mark !== undefined && world.isAlive(mark.id) && canSee(world, player, mark.id & 0xfffff);
     if (mark !== undefined && inSight && far(centre.x, centre.y, mark.x, mark.y) <= 12 && defenders * 3 < army.length) {
       const wreckers = army.filter(
-        (slot) => !ENTITY_TYPES[world.entityType[slot]!]!.ranged && !(world.orderKind[slot] === OrderKind.AttackTarget && world.target[slot] === mark.id),
+        (slot) => !world.typeOf(slot).ranged && !(world.orderKind[slot] === OrderKind.AttackTarget && world.target[slot] === mark.id),
       );
       if (wreckers.length > 0) this.out.push({ kind: 'attack', units: this.ids(wreckers), target: mark.id });
     } else {

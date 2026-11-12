@@ -7,6 +7,7 @@ import { Kind } from '../src/sim/entityTypes';
 import { hashWorld } from '../src/sim/hash';
 import { Terrain } from '../src/sim/map';
 import { runReplay } from '../src/sim/replay';
+import { TECHS } from '../src/sim/tech';
 import { canSee, hasExplored } from '../src/sim/vision';
 import { defaultConfig, Job, MoveState, type World } from '../src/sim/world';
 import { brokenInvariant } from './helpers';
@@ -79,16 +80,22 @@ describe('the skirmish AI', () => {
     expect(at[6]![Kind.ArcheryRange]).toBe(1);
     expect(at[6]![Kind.LumberCamp]).toBeGreaterThanOrEqual(1);
     expect(at[6]![Kind.Farm] ?? 0).toBeGreaterThanOrEqual(1);
-    // Ten minutes: the berries are gone and the town lives off its farms; all three kinds of soldier can be trained.
+    // Ten minutes: the berries are all but gone and the town lives off its farms; all three kinds of soldier can be trained.
     expect(at[10]![Kind.Farm]).toBeGreaterThanOrEqual(8);
     expect(at[10]![Kind.Stable]).toBe(1);
-    expect(at[10]![Kind.Watchtower]).toBe(1);
+    expect((at[10]![Kind.Watchtower] ?? 0) + (at[10]![Kind.Blacksmith] ?? 0)).toBeGreaterThanOrEqual(1);
     let berries = 0;
     for (let tile = 0; tile < world.map.tileCount; tile++) {
       if (world.map.terrain[tile] === Terrain.Berries && hasExplored(world, 0, tile)) berries += world.map.amount[tile]!;
     }
-    expect(berries).toBe(0);
+    expect(berries).toBeLessThan(300);
     expect(world.grown[0]).toBeGreaterThan(500);
+    // It has dug for gold, chosen a reform and left the first age, and begun on research.
+    expect(at[10]![Kind.MiningCamp]).toBeGreaterThanOrEqual(1);
+    expect(world.age[0]).toBeGreaterThanOrEqual(1);
+    let researched = 0;
+    for (let id = 0; id < TECHS.length; id++) researched += world.researched[id]!;
+    expect(researched).toBeGreaterThanOrEqual(4);
     // Its villagers are hardly ever standing about.
     expect(idleVillagerTicks / villagerTicks).toBeLessThan(0.05);
     // And it does all this with a person's worth of orders, not a flood.
@@ -157,12 +164,12 @@ describe('the skirmish AI', () => {
     const { world } = session;
     const doomed = townCentre(world, 0);
     let fell = -1;
-    for (let tick = 0; tick < 14 * MINUTE && fell === -1; tick++) {
+    for (let tick = 0; tick < 20 * MINUTE && fell === -1; tick++) {
       session.step();
       if (!world.isAlive(doomed)) fell = tick;
     }
     expect(fell).toBeGreaterThan(4 * MINUTE); // not before it has had time to raise an army
-    expect(fell).toBeLessThan(13 * MINUTE);
+    expect(fell).toBeLessThan(19 * MINUTE);
     // It goes on to hunt down what is left.
     for (let tick = 0; tick < 3 * MINUTE && world.livingEntities(0).length > 0; tick++) session.step();
     expect(world.livingEntities(0).length).toBe(0);
@@ -175,7 +182,7 @@ describe('the skirmish AI', () => {
     const easyTown = townCentre(world, 1);
     const hardTown = townCentre(world, 0);
     let fell = -1;
-    for (let tick = 0; tick < 24 * MINUTE && fell === -1; tick++) {
+    for (let tick = 0; tick < 28 * MINUTE && fell === -1; tick++) {
       session.step();
       if (tick === 8 * MINUTE) {
         expect(census(world, 0)[Kind.Villager]!).toBeGreaterThan(census(world, 1)[Kind.Villager]! + 8);
@@ -184,5 +191,8 @@ describe('the skirmish AI', () => {
     }
     expect(fell).not.toBe(-1);
     expect(world.isAlive(hardTown)).toBe(true);
+    // Hard climbs further through the ages than easy is allowed to.
+    expect(world.age[0]).toBeGreaterThanOrEqual(2);
+    expect(world.age[1]).toBeLessThanOrEqual(1);
   });
 });
