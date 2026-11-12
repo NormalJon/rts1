@@ -140,6 +140,24 @@ change to how matches play out is made in both, in step:
   whole number or a list should be; in C# its fields are typed, so whatever
   reads commands from a file or the network must reject those before they
   reach the simulation.
-- The 253 TypeScript unit tests were not translated. The C# is held to the
-  TypeScript by whole matches, not rule by rule, so a rule the nine matches
-  never reach is checked only by reading the two files against each other.
+- Rule by rule. The 253 TypeScript unit tests were not translated. The C# is
+  held to the TypeScript by whole matches and by the recorded figures, so a
+  rule that none of them reaches is checked only by reading the two files
+  against each other. A coverage tool
+  (`dotnet test csharp/Rts.slnx --collect:"XPlat Code Coverage"`, which takes
+  about a quarter of an hour) showed the tests running 97.3 per cent of the
+  library's lines before the scenario match, the two extra maps and the table
+  figures were added to reach more of them. What is still never run:
+  - in `Combat.cs`, a unit that finds itself inside the outline of the
+    building it is attacking stepping out sideways (`FindPlaceBeside`);
+  - in `Movement.cs`, a unit on a flow field whose group or field has gone
+    asking for a path of its own (`Steer`);
+  - in `Ai/Skirmish.cs`, choosing a horseman as the scout, standing down when
+    there is nothing left to find, and working out where home is for a side
+    that has never had a town centre;
+  - in `Search.cs`, the heap growing past its first size;
+  - two branches nothing can reach as the rules stand: a change of terrain
+    that alters whether a tile can be walked on (`SetTerrain`), and a
+    technology giving a unit a bonus where it had none;
+  - a few small helpers that nothing in the library calls (`Fixed.ToFloat`,
+    `Units.FromFloat`, `SkirmishAi.Status`).
