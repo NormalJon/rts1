@@ -32,6 +32,7 @@ world checksum after every tick. The tests here hold the C# to those files.
 | `ArithmeticTests` | The fixed-point functions and the random number generator, over 4,000 rounds of inputs worked out by the TypeScript. |
 | `MapTests` | Ten maps agree tile for tile, and 90 route searches on them find the same routes after the same amount of work. Two of the maps are ones on which the generator has to cut a way through between the two starts. |
 | `TableTests` | Every technology is written down as in the TypeScript, description included; each one alone, and all of them together, make the same of every unit and building; and everything takes the same number of ticks at every tick rate from 1 to 120. No one match researches everything or runs at every rate. |
+| `WorldTests` | The world's own bookkeeping, as in the TypeScript tests of the same name: slots are reused safely, a save restores free slots and generations, a dead unit gives up its place in a group, a full world says so, and settings the TypeScript refuses are refused here. |
 
 The ten matches: the reference match and the same with pathfinding starved;
 random orders from the first age on a larger map; on a hand-drawn map with

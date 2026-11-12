@@ -56,7 +56,7 @@ to, and what has not been checked. Read it before changing anything there.
 
 Checks that must stay green: `npm test` (257 tests), `npm run typecheck`,
 `npm run check:browser`, `npm run check:recordings`, and
-`dotnet test csharp/Rts.slnx` (38 tests). The reference match must hash to
+`dotnet test csharp/Rts.slnx` (43 tests). The reference match must hash to
 `8faaf6a6` (`test/determinism.test.ts`, `scripts/browser-check.mjs`,
 `test/recordings.test.ts` and `csharp/Rts.Core.Tests/ReplayTests.cs`); change
 that number only when a change in how matches play out is intended, and then
