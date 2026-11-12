@@ -117,13 +117,19 @@ particular to C#.
 
 ## When the game changes
 
-While the port is being finished the TypeScript stays frozen. After that, a
-change to how matches play out is made in both, in step:
+The port is finished. The TypeScript stays as the reference the C# was checked
+against, and for as long as it is kept, a change to how matches play out is
+made in both, in step:
 
 1. Change the TypeScript and its tests. The reference checksum in
    `test/determinism.test.ts` will move if behaviour did.
 2. `npm run record` to write the recordings again.
 3. Make the same change here until `dotnet test csharp/Rts.slnx` passes.
+
+New features (walls, siege, garrisoning and the rest) are to be written once,
+in C#. From then on the TypeScript can no longer supply the reference, and the
+C# will need to record matches of its own to be held to. That has not been set
+up yet.
 
 ## Not checked
 

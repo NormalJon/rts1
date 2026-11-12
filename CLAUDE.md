@@ -39,8 +39,8 @@ The core build is finished in TypeScript, in eight steps:
 
 All eight steps are on `main`.
 
-Step 9, the C# port, is on the branch `step-9-csharp-port`, pushed and not
-yet merged. What is on it:
+Step 9, the C# port, is finished and on `main` as well: the owner said merge
+on 12 November 2026. What it added:
 
 - `recordings/`: ten matches played by the TypeScript game and written down
   in full (settings, every command, the checksum after every tick), with the
@@ -133,8 +133,8 @@ or timers in game rules.
    it, so the same library serves Unity or Godot. Proof of the port: matches
    recorded from the TypeScript game (settings, command log, checksum on every
    tick) must replay to the same checksums in C#. The TypeScript version stays
-   frozen as the reference while this is done. **Done on the branch
-   `step-9-csharp-port`; waiting for the owner to say merge.**
+   frozen as the reference while this is done. **Done, and merged into
+   `main` on 12 November 2026.**
 2. First picture in the engine: map, camera, the existing models, watching the
    AI play itself.
 3. Playable parity: selection, orders, HUD, minimap, fog, build and research
@@ -160,7 +160,6 @@ the fuller list of rules that came out of the work)
 
 ## Waiting on the owner
 
-- Whether to merge `step-9-csharp-port` into `main`.
 - A plain yes to Unity 6 before it is installed. The C# port does not depend
   on the answer.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
