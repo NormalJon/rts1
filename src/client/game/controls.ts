@@ -8,6 +8,8 @@
 
 import { canPlace } from '../../sim/buildings';
 import {
+  AGE_NAMES,
+  AGE_YEARS,
   buildPointsNeeded,
   ENTITY_TYPES,
   Kind,
@@ -19,6 +21,7 @@ import {
 } from '../../sim/entityTypes';
 import { Terrain } from '../../sim/map';
 import { countPopulation } from '../../sim/production';
+import { QUEUED_TECH, researchTicks, TECHS, whyNot } from '../../sim/tech';
 import { fromFloat } from '../../sim/units';
 import { entityIndex, Job, MoveState, OrderKind, type EntityId } from '../../sim/world';
 import type { LocalSession } from '../../session/localSession';
@@ -41,20 +44,42 @@ const BUILD_ORDER: readonly number[] = [
   Kind.Barracks,
   Kind.ArcheryRange,
   Kind.Stable,
+  Kind.Blacksmith,
   Kind.Watchtower,
 ];
 /** How far from the middle of the view something must be hit before the player is told, in tiles. */
 const ALARM_DISTANCE = 22;
 const ALARM_EVERY_MS = 12000;
 
-const PLURALS: Record<string, string> = { spearman: 'spearmen', horseman: 'horsemen' };
+const PLURALS: Record<string, string> = {
+  spearman: 'spearmen',
+  horseman: 'horsemen',
+  pikeman: 'pikemen',
+  longbowman: 'longbowmen',
+  crossbowman: 'crossbowmen',
+  'man-at-arms': 'men-at-arms',
+};
 /** What a weapon's bonus is against, in words, by tag. */
 const TAG_WORDS: [number, string][] = [
   [Tag.Cavalry, 'horsemen'],
   [Tag.Ranged, 'archers'],
   [Tag.Spear, 'spearmen'],
+  [Tag.Heavy, 'armour'],
   [Tag.Building, 'buildings'],
 ];
+
+/** A button in the action row. */
+interface Action {
+  readonly label: string;
+  readonly detail: string;
+  /** What it costs, so it can be shown as out of reach; null if nothing. */
+  readonly cost: readonly number[] | null;
+  /** Why it cannot be done at all just now, if it cannot. Shown in place of the cost. */
+  readonly locked?: string | undefined;
+  /** A longer word on what it is, for the tooltip. */
+  readonly about?: string | undefined;
+  readonly run: () => void;
+}
 const ORDER_WORDS: Record<number, string> = {
   [OrderKind.AttackMove]: 'Marching to attack',
   [OrderKind.Patrol]: 'On patrol',
@@ -73,6 +98,8 @@ function costText(cost: readonly number[]): string {
 }
 
 export interface Hud {
+  /** The age the player has reached. */
+  readonly age: HTMLElement;
   readonly selection: HTMLElement;
   readonly groups: HTMLElement;
   /** The row of orders for selected units: attack-move, patrol, hold, stop. */
@@ -131,6 +158,8 @@ export class Controls {
   private productionFor = '';
   private groupsFor = '';
   private toastUntil = 0;
+  /** What the player had researched when last looked at, to announce what is new. */
+  private researchSeen = '';
 
   constructor(
     private readonly player: number,
@@ -256,7 +285,7 @@ export class Controls {
   private buildersSelected(): boolean {
     const { world } = this.session;
     for (const id of this.selected) {
-      if (ENTITY_TYPES[world.entityType[entityIndex(id)]!]!.builds) return true;
+      if (world.typeOf(entityIndex(id)).builds) return true;
     }
     return false;
   }
@@ -496,7 +525,7 @@ export class Controls {
     if (target.kind === 'building') {
       const slot = entityIndex(target.id);
       const mine = world.owner[slot] === this.player;
-      const type = ENTITY_TYPES[world.entityType[slot]!]!;
+      const type = world.typeOf(slot);
       const damaged = world.hp[slot]! < type.hp;
       if (!mine && world.hostile(this.player, world.owner[slot]!)) {
         this.session.issue(this.player, { kind: 'attack', units, target: target.id });
@@ -573,7 +602,7 @@ export class Controls {
     return world.livingUnits(this.player).filter((id) => {
       const slot = entityIndex(id);
       return (
-        ENTITY_TYPES[world.entityType[slot]!]!.carries > 0 &&
+        world.typeOf(slot).carries > 0 &&
         world.job[slot] === Job.None &&
         world.moveState[slot] === MoveState.Idle
       );
@@ -615,19 +644,40 @@ export class Controls {
   // ---- Building and training ---------------------------------------------------
 
   /** What the buttons in the action row do just now, left to right. */
-  private actions(): { label: string; detail: string; cost: readonly number[] | null; run: () => void }[] {
+  private actions(): Action[] {
     const { world } = this.session;
+    const types = world.types[this.player]!;
+    const age = world.age[this.player]!;
     const own = this.ownBuilding();
     if (own !== -1) {
-      const type = ENTITY_TYPES[world.entityType[own]!]!;
-      const list = world.built[own] === 1
-        ? type.trains.map((unitType) => ({
-            label: `Train ${ENTITY_TYPES[unitType]!.name}`,
-            detail: costText(ENTITY_TYPES[unitType]!.cost),
-            cost: ENTITY_TYPES[unitType]!.cost as readonly number[] | null,
+      const type = world.typeOf(own);
+      const list: Action[] = [];
+      if (world.built[own] === 1) {
+        for (const unitType of type.trains) {
+          const unit = types[unitType]!;
+          list.push({
+            label: `Train ${unit.name}`,
+            detail: costText(unit.cost),
+            cost: unit.cost,
+            locked: unit.age > age ? `needs the ${AGE_NAMES[unit.age]} age` : undefined,
             run: () => this.train(unitType),
-          }))
-        : [];
+          });
+        }
+        // What can be researched here: everything not yet done, apart from reforms whose age is past.
+        TECHS.forEach((tech, id) => {
+          if (tech.at !== world.entityType[own] || world.researched[this.player * TECHS.length + id] === 1) return;
+          const why = whyNot(world, this.player, id);
+          if (tech.reform && (why === 'that age is past' || why === 'not yet')) return;
+          list.push({
+            label: tech.reform ? `Reform: ${tech.name}` : tech.name,
+            detail: `${costText(tech.cost)} · ${tech.seconds} s`,
+            cost: tech.cost,
+            locked: why ?? undefined,
+            about: tech.reform ? `${tech.about} Takes you into the ${AGE_NAMES[tech.age + 1]} age; the other reform is then closed.` : tech.about,
+            run: () => this.research(id),
+          });
+        });
+      }
       list.push({
         label: world.built[own] === 1 ? 'Pull down' : 'Cancel site',
         detail: world.built[own] === 1 ? 'no refund' : `refunds ${costText(type.cost)}`,
@@ -641,13 +691,15 @@ export class Controls {
         const at = BUILD_ORDER.indexOf(entityType);
         return at === -1 ? BUILD_ORDER.length + entityType : at;
       };
-      return ENTITY_TYPES.map((type, entityType) => ({ type, entityType }))
+      return types
+        .map((type, entityType) => ({ type, entityType }))
         .filter(({ type }) => type.building && type.buildable)
         .sort((a, b) => rank(a.entityType) - rank(b.entityType))
         .map(({ type, entityType }) => ({
           label: capital(type.name),
           detail: costText(type.cost),
-          cost: type.cost as readonly number[] | null,
+          cost: type.cost,
+          locked: type.age > age ? `needs the ${AGE_NAMES[type.age]} age` : undefined,
           run: () => this.startPlacing(entityType),
         }));
     }
@@ -664,10 +716,36 @@ export class Controls {
     const { world } = this.session;
     const own = this.ownBuilding();
     if (own === -1) return;
-    const type = ENTITY_TYPES[unitType]!;
+    const type = world.types[this.player]![unitType]!;
+    if (type.age > world.age[this.player]!) return this.toast(`A ${type.name} needs the ${AGE_NAMES[type.age]} age: choose a reform at the town centre`);
     if (world.trainLength[own]! >= TRAIN_QUEUE_LENGTH) return this.toast('The queue is full');
     if (!world.canAfford(this.player, type.cost)) return this.toast(`Not enough for a ${type.name}: ${costText(type.cost)}`);
     this.session.issue(this.player, { kind: 'train', building: this.building!, unitType });
+  }
+
+  private research(id: number): void {
+    const { world } = this.session;
+    const own = this.ownBuilding();
+    if (own === -1) return;
+    const tech = TECHS[id]!;
+    const why = whyNot(world, this.player, id);
+    if (why !== null) return this.toast(`${tech.name}: ${why}`);
+    if (world.trainLength[own]! >= TRAIN_QUEUE_LENGTH) return this.toast('The queue is full');
+    if (!world.canAfford(this.player, tech.cost)) return this.toast(`Not enough for ${tech.name}: ${costText(tech.cost)}`);
+    this.session.issue(this.player, { kind: 'research', building: this.building!, tech: id });
+  }
+
+  /** What something in a building's queue is called: a unit, or a technology. */
+  private queuedName(queued: number): string {
+    if (queued >= QUEUED_TECH) return TECHS[queued - QUEUED_TECH]?.name ?? 'Research';
+    return capital(this.session.world.types[this.player]![queued - 1]?.name ?? 'unit');
+  }
+
+  /** How many ticks something in a building's queue takes. */
+  private queuedTicks(queued: number): number {
+    const { world } = this.session;
+    if (queued >= QUEUED_TECH) return researchTicks(queued - QUEUED_TECH, world.config.tickRate);
+    return trainingTicks(world.types[this.player]![queued - 1]!, world.config.tickRate);
   }
 
   private demolish(): void {
@@ -676,8 +754,12 @@ export class Controls {
   }
 
   private startPlacing(entityType: number): void {
-    const type = ENTITY_TYPES[entityType]!;
-    if (!this.session.world.canAfford(this.player, type.cost)) {
+    const { world } = this.session;
+    const type = world.types[this.player]![entityType]!;
+    if (type.age > world.age[this.player]!) {
+      return this.toast(`A ${type.name} needs the ${AGE_NAMES[type.age]} age: choose a reform at the town centre`);
+    }
+    if (!world.canAfford(this.player, type.cost)) {
       return this.toast(`Not enough for a ${type.name}: ${costText(type.cost)}`);
     }
     this.placing = entityType;
@@ -901,7 +983,7 @@ export class Controls {
   /** One unit's vital statistics, for the panel. */
   private statsOf(slot: number): string {
     const { world } = this.session;
-    const type = ENTITY_TYPES[world.entityType[slot]!]!;
+    const type = world.typeOf(slot);
     let text = `${world.hp[slot]}/${type.hp} hp`;
     if (type.damage > 0) {
       const bonuses = type.bonuses.map(([tags, extra]) => {
@@ -928,7 +1010,7 @@ export class Controls {
     if (this.inspectedUnit !== null && world.isAlive(this.inspectedUnit)) {
       const slot = entityIndex(this.inspectedUnit);
       const whose = world.hostile(this.player, world.owner[slot]!) ? 'Enemy' : 'Allied';
-      return `${whose} ${ENTITY_TYPES[world.entityType[slot]!]!.name} · ${this.statsOf(slot)}`;
+      return `${whose} ${world.typeOf(slot).name} · ${this.statsOf(slot)}`;
     }
     const remembered = this.building === null ? undefined : this.view.building(this.building);
     if (remembered !== undefined && !this.view.seesBuilding(remembered.id)) {
@@ -938,7 +1020,7 @@ export class Controls {
     }
     if (this.building !== null && world.isAlive(this.building)) {
       const slot = entityIndex(this.building);
-      const type = ENTITY_TYPES[world.entityType[slot]!]!;
+      const type = world.typeOf(slot);
       const name = capital(type.name);
       const health = `${world.hp[slot]}/${type.hp} hp`;
       if (world.owner[slot] !== this.player) return `${name} · the enemy's · ${health}`;
@@ -971,10 +1053,10 @@ export class Controls {
     // For a single unit, its figures, and for a villager what they are up to.
     if (this.selected.size === 1) {
       const slot = entityIndex([...this.selected][0]!);
-      text = `${capital(ENTITY_TYPES[world.entityType[slot]!]!.name)} · ${this.statsOf(slot)}`;
+      text = `${capital(world.typeOf(slot).name)} · ${this.statsOf(slot)}`;
       const order = ORDER_WORDS[world.orderKind[slot]!];
       if (order !== undefined) text += ` — ${order}`;
-      if (ENTITY_TYPES[world.entityType[slot]!]!.carries > 0 && order === undefined) {
+      if (world.typeOf(slot).carries > 0 && order === undefined) {
         const job = world.job[slot];
         let doing = 'Idle';
         if (job === Job.ToDropOff) doing = 'Carrying a load home';
@@ -999,7 +1081,7 @@ export class Controls {
     // The action row is rebuilt only when what it offers changes, so a click is never lost to a redraw.
     const actions = this.placing !== null ? [] : this.actions();
     const own = this.ownBuilding();
-    const actionsFor = actions.map((a) => `${a.label}|${a.detail}`).join(';');
+    const actionsFor = actions.map((a) => `${a.label}|${a.detail}|${a.locked ?? ''}`).join(';');
     if (actionsFor !== this.actionsFor) {
       this.actionsFor = actionsFor;
       hud.actions.replaceChildren(
@@ -1012,8 +1094,10 @@ export class Controls {
           const key = pullDown ? 'del' : ACTION_KEYS[index];
           button.innerHTML = `<span class="action-name"></span><span class="action-detail"></span>${key ? `<kbd>${key.toUpperCase()}</kbd>` : ''}`;
           button.children[0]!.textContent = action.label;
-          button.children[1]!.textContent = action.detail;
+          button.children[1]!.textContent = action.locked ?? action.detail;
+          if (action.about !== undefined) button.title = action.about;
           if (pullDown) button.classList.add('action--quiet');
+          if (action.locked !== undefined) button.classList.add('action--locked');
           return button;
         }),
       );
@@ -1022,7 +1106,7 @@ export class Controls {
     actions.forEach((action, index) => {
       const button = hud.actions.children[index] as HTMLButtonElement | undefined;
       // Shown as unaffordable rather than disabled, so a click can still say what is missing.
-      button?.classList.toggle('action--short', action.cost !== null && !world.canAfford(this.player, action.cost));
+      button?.classList.toggle('action--short', action.locked === undefined && action.cost !== null && !world.canAfford(this.player, action.cost));
     });
 
     // Progress: of the building going up, or of the unit being trained.
@@ -1031,14 +1115,13 @@ export class Controls {
     if (own !== -1 && world.built[own] === 0) {
       progress = world.buildPoints[own]! / buildPointsNeeded(world.entityType[own]!, world.config.tickRate);
     } else if (waiting > 0) {
-      const head = world.trainQueue[own * TRAIN_QUEUE_LENGTH]! - 1;
-      progress = world.trainTicks[own]! / trainingTicks(ENTITY_TYPES[head]!, world.config.tickRate);
+      progress = world.trainTicks[own]! / this.queuedTicks(world.trainQueue[own * TRAIN_QUEUE_LENGTH]!);
     }
     hud.progress.hidden = progress < 0;
     if (progress >= 0) hud.progressBar.style.width = `${Math.min(100, progress * 100).toFixed(1)}%`;
 
-    const held = waiting > 0 && world.trainStarted[own] === 0;
-    const queued = Array.from({ length: waiting }, (_, k) => world.trainQueue[own * TRAIN_QUEUE_LENGTH + k]! - 1);
+    const held = waiting > 0 && world.trainStarted[own] === 0 && world.trainQueue[own * TRAIN_QUEUE_LENGTH]! < QUEUED_TECH;
+    const queued = Array.from({ length: waiting }, (_, k) => world.trainQueue[own * TRAIN_QUEUE_LENGTH + k]!);
     const queueFor = `${own}:${queued.join(',')}:${held}`;
     if (queueFor !== this.queueFor) {
       this.queueFor = queueFor;
@@ -1048,7 +1131,7 @@ export class Controls {
           chip.type = 'button';
           chip.className = 'queued';
           chip.dataset.queued = String(k);
-          chip.textContent = capital(ENTITY_TYPES[unitType]!.name) + (k === 0 && held ? ' · needs a house' : '');
+          chip.textContent = this.queuedName(unitType) + (k === 0 && held ? ' · needs a house' : '');
           chip.title = 'Click to cancel and get the cost back';
           return chip;
         }),
@@ -1074,24 +1157,38 @@ export class Controls {
           row.type = 'button';
           row.className = 'producing';
           row.dataset.building = String(world.idAt(slot));
-          const unit = ENTITY_TYPES[world.trainQueue[slot * TRAIN_QUEUE_LENGTH]! - 1]!.name;
+          const head = world.trainQueue[slot * TRAIN_QUEUE_LENGTH]!;
           const more = world.trainLength[slot]! - 1;
+          const waitingForRoom = head < QUEUED_TECH && world.trainStarted[slot] === 0;
           const label = document.createElement('span');
-          label.textContent =
-            `${capital(unit)}${more > 0 ? ` +${more}` : ''}` + (world.trainStarted[slot] === 0 ? ' · needs a house' : '');
+          label.textContent = `${this.queuedName(head)}${more > 0 ? ` +${more}` : ''}` + (waitingForRoom ? ' · needs a house' : '');
           const bar = document.createElement('i');
           row.append(label, bar);
-          row.title = `In training at the ${ENTITY_TYPES[world.entityType[slot]!]!.name}. Click to go there.`;
+          row.title = `Under way at the ${world.typeOf(slot).name}. Click to go there.`;
           return row;
         }),
       );
       hud.production.hidden = busy.length === 0;
     }
     busy.forEach((slot, index) => {
-      const head = world.trainQueue[slot * TRAIN_QUEUE_LENGTH]! - 1;
       const bar = hud.production.children[index]?.lastElementChild as HTMLElement | null;
-      if (bar) bar.style.width = `${Math.min(100, (world.trainTicks[slot]! / trainingTicks(ENTITY_TYPES[head]!, world.config.tickRate)) * 100).toFixed(1)}%`;
+      const done = world.trainTicks[slot]! / this.queuedTicks(world.trainQueue[slot * TRAIN_QUEUE_LENGTH]!);
+      if (bar) bar.style.width = `${Math.min(100, done * 100).toFixed(1)}%`;
     });
+
+    // The age, and word of anything newly researched.
+    const age = world.age[this.player]!;
+    hud.age.textContent = AGE_NAMES[age]!;
+    hud.age.title = `The ${AGE_NAMES[age]} age, ${AGE_YEARS[age]}. Choose a reform at the town centre to move on.`;
+    const mine = world.researched.subarray(this.player * TECHS.length, (this.player + 1) * TECHS.length);
+    const researchNow = mine.join('');
+    if (this.researchSeen !== '' && researchNow !== this.researchSeen) {
+      const fresh = TECHS.find((_, id) => mine[id] === 1 && this.researchSeen[id] === '0');
+      if (fresh !== undefined) {
+        this.toast(fresh.reform ? `${fresh.name}: you have entered the ${AGE_NAMES[age]} age` : `Researched: ${fresh.name}`);
+      }
+    }
+    this.researchSeen = researchNow;
 
     const population = countPopulation(world);
     hud.population.textContent = `${population.used[this.player]}/${population.room[this.player]}`;

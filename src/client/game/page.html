@@ -51,6 +51,8 @@
   .stores svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
   .stores dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .stores dd { margin: 0; font-family: var(--font-data); font-size: 14px; font-variant-numeric: tabular-nums; min-width: 3ch; }
+  .stores .age dd { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--woad); white-space: nowrap; }
+  .stores .age { padding-right: 14px; border-right: 1px solid var(--panel-line); }
 
   .tools { grid-area: tools; display: flex; gap: 8px; align-self: start; justify-self: end; flex-wrap: wrap; justify-content: flex-end; }
   .title-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -94,9 +96,11 @@
   .action kbd { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
   .action--short .action-name, .action--short .action-detail { color: var(--warn); }
   .action--quiet .action-name { font-weight: 500; color: var(--muted); }
+  .action--locked { border-style: dashed; }
+  .action--locked .action-name, .action--locked .action-detail { color: var(--muted); }
   .queued { padding: 3px 9px; font-size: 12.5px; background: transparent; border-style: dashed; }
   .queued:first-child { border-style: solid; border-color: var(--woad); }
-  #toast { position: absolute; left: 50%; bottom: 168px; transform: translateX(-50%); padding: 7px 14px; font-size: 13.5px; max-width: min(92%, 520px); text-align: center; pointer-events: none; border-color: var(--warn); }
+  #toast { position: absolute; left: 50%; top: 68px; transform: translateX(-50%); padding: 7px 14px; font-size: 13.5px; max-width: min(92%, 520px); text-align: center; pointer-events: none; border-color: var(--warn); }
   #population.full { color: var(--warn); }
   #selection { font-size: 14px; font-weight: 500; min-width: 0; }
   #orders { display: flex; gap: 6px; flex: none; }
@@ -124,7 +128,7 @@
     .command-head { flex-wrap: wrap; gap: 6px; }
     #orders { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
     #orders button { padding: 6px 8px; font-size: 12.5px; }
-    #toast { bottom: 190px; }
+    #toast { top: 196px; }
     button { padding: 7px 10px; }
   }
 </style>
@@ -152,6 +156,7 @@
     </div>
 
     <dl class="stores panel" aria-label="Your stores">
+      <div class="age"><dt>Age</dt><dd id="age" title="The age you have reached">Early Medieval</dd></div>
       <div><dt>Food</dt><svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><rect x="15" y="9" width="2" height="21" rx="1"/><ellipse cx="16" cy="5.6" rx="2.6" ry="4.4"/><ellipse cx="11.3" cy="11" rx="2.4" ry="4.4" transform="rotate(-38 11.3 11)"/><ellipse cx="20.7" cy="11" rx="2.4" ry="4.4" transform="rotate(38 20.7 11)"/><ellipse cx="11.3" cy="16.6" rx="2.4" ry="4.4" transform="rotate(-38 11.3 16.6)"/><ellipse cx="20.7" cy="16.6" rx="2.4" ry="4.4" transform="rotate(38 20.7 16.6)"/><ellipse cx="11.3" cy="22.2" rx="2.4" ry="4.4" transform="rotate(-38 11.3 22.2)"/><ellipse cx="20.7" cy="22.2" rx="2.4" ry="4.4" transform="rotate(38 20.7 22.2)"/></svg><dd id="stock-food" title="Food">0</dd></div>
       <div><dt>Wood</dt><svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><path fill-rule="evenodd" d="M3.2 22.6a6.2 6.2 0 1 0 12.4 0a6.2 6.2 0 1 0 -12.4 0zM5.1 22.6a4.3 4.3 0 1 0 8.6 0a4.3 4.3 0 1 0 -8.6 0zM7.1 22.6a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0zM16.4 22.6a6.2 6.2 0 1 0 12.4 0a6.2 6.2 0 1 0 -12.4 0zM18.3 22.6a4.3 4.3 0 1 0 8.6 0a4.3 4.3 0 1 0 -8.6 0zM20.3 22.6a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0zM9.8 11.2a6.2 6.2 0 1 0 12.4 0a6.2 6.2 0 1 0 -12.4 0zM11.7 11.2a4.3 4.3 0 1 0 8.6 0a4.3 4.3 0 1 0 -8.6 0zM13.7 11.2a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0z"/></svg><dd id="stock-wood" title="Wood">0</dd></div>
       <div><dt>Stone</dt><svg aria-hidden="true" viewBox="0 0 32 32" fill="currentColor"><path d="M3.5 27 6.6 14.4 15 18.6 13.6 27z"/><path d="M8 12.4 14.2 5.6 22.8 7.6 16.6 16.8z"/><path d="M18.2 18 24.2 9.2 28.8 17.4 27.4 27H15.4z"/></svg><dd id="stock-stone" title="Stone">0</dd></div>
@@ -188,6 +193,7 @@
         <dt>esc</dt><dd>Clear the selection</dd>
       </dl>
       <p><b>Spearmen</b> stop horsemen, <b>horsemen</b> ride down archers, <b>archers</b> shoot spearmen before they close. Soldiers left alone guard where they stand; a plain move ignores the enemy.</p>
+      <p>There are four <b>ages</b>. To leave one, choose one of the two <b>reforms</b> offered at the town centre: each takes you on and leaves its own mark, and the other is then closed. Later ages bring soldiers in armour (they cost gold) and the weapons that beat them. <b>Research</b> at each building improves what it deals in; hover a button to read what it was.</p>
       <p>You see only what your people see. Ground you have left stays on the map as you last saw it; ground you have never seen is dark, and nothing can be built there. <b>Lift fog</b> shows everything, for testing.</p>
       <p>You lead the blue side, in the north-west. The computer leads red: it builds a town, scouts you out, and attacks when it has the soldiers, with more each time. It plays by your rules, fog and all. Pick how hard it plays with <b>Opponent</b>. When the berries run out, build <b>farms</b>: one villager works each, and the food never ends. Pull down the red town centre to win.</p>
     </aside>

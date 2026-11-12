@@ -191,21 +191,33 @@ export async function loadModels(): Promise<Models> {
       loadStatic('gold-deposit', () => standIn('#c9a227', 1.7, 1.2)),
     ]);
   // Until a soldier has a model of his own he is drawn as a spearman.
-  const [archer, horseman, archeryRange, stable, watchtower, farm] = await Promise.all([
+  const [archer, horseman, archeryRange, stable, watchtower, farm, blacksmith] = await Promise.all([
     has('archer') ? loadUnit('archer', ['idle', 'walk', 'attack']) : spearman,
     has('horseman') ? loadUnit('horseman', ['idle', 'walk', 'attack']) : spearman,
     loadStatic('archery-range', () => standIn('#9a7a4a', 9, 2.6, true)),
     loadStatic('stable', () => standIn('#6f5a3f', 9, 3, true)),
     loadStatic('watchtower', () => standIn('#8c8a84', 3.4, 8, true)),
     loadStatic('farm', () => standIn('#7b6a45', 5.6, 0.12)),
+    loadStatic('blacksmith', () => standIn('#5f5a55', 5, 3.2, true)),
+  ]);
+  // The soldiers of later ages, each drawn as his forerunner until he has a model of his own.
+  const [manAtArms, knight, crossbowman, handgunner] = await Promise.all([
+    has('man-at-arms') ? loadUnit('man-at-arms', ['idle', 'walk', 'attack']) : spearman,
+    has('knight') ? loadUnit('knight', ['idle', 'walk', 'attack']) : horseman,
+    has('crossbowman') ? loadUnit('crossbowman', ['idle', 'walk', 'attack']) : archer,
+    has('handgunner') ? loadUnit('handgunner', ['idle', 'walk', 'attack']) : archer,
   ]);
   // Both lists are in the order of the simulation's ENTITY_TYPES: spearman,
   // villager, town centre, house, mill, lumber camp, mining camp, barracks,
-  // archer, horseman, archery range, stable, watchtower, farm.
+  // archer, horseman, archery range, stable, watchtower, farm, man-at-arms,
+  // knight, crossbowman, handgunner, blacksmith.
   const none = undefined;
   return {
-    units: [spearman, villager, none, none, none, none, none, none, archer, horseman],
-    buildings: [none, none, hall, house, mill, lumberCamp, miningCamp, barracks, none, none, archeryRange, stable, watchtower, farm],
+    units: [spearman, villager, none, none, none, none, none, none, archer, horseman, none, none, none, none, manAtArms, knight, crossbowman, handgunner],
+    buildings: [
+      none, none, hall, house, mill, lumberCamp, miningCamp, barracks, none, none, archeryRange, stable, watchtower, farm,
+      none, none, none, none, blacksmith,
+    ],
     oak,
     conifer,
     berries,

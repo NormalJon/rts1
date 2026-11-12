@@ -705,7 +705,7 @@ export class GameView {
       shown.model.scale.y = width * (0.06 + 0.94 * done);
       shown.plot.visible = !finished;
       // A bar over anything damaged, and over whatever is selected.
-      const type = ENTITY_TYPES[world.entityType[slot]!]!;
+      const type = world.typeOf(slot);
       const picked = this.selectedBuilding === shown.id;
       if (picked || (finished && world.hp[slot]! < type.hp)) {
         const at = shown.group.position;
@@ -981,7 +981,7 @@ export class GameView {
         this.shownId[slot] = -1;
         continue;
       }
-      const type = ENTITY_TYPES[typeId]!;
+      const type = world.typeOf(slot);
       const curX = toFloat(world.posX[slot]!);
       const curY = toFloat(world.posY[slot]!);
       const facing = Math.atan2(toFloat(world.dirX[slot]!), toFloat(world.dirY[slot]!));

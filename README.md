@@ -1,16 +1,17 @@
 # Medieval RTS (working title)
 
 A historical real-time strategy game covering roughly 800–1600 CE. This
-repository holds the first seven steps of the core build: the deterministic
+repository holds the eight steps of the core build: the deterministic
 simulation loop; maps, pathfinding and unit movement with a 3D view to play
 it in; resources and gathering; buildings, training and population; combat
-and the counter triangle; fog of war; then a skirmish AI to play against.
+and the counter triangle; fog of war; a skirmish AI to play against; then
+ages and technology.
 
 ## Commands
 
 ```bash
 npm install
-npm test               # maths, maps, pathfinding, movement, economy, buildings, combat, vision, the AI, determinism, source rules
+npm test               # maths, maps, pathfinding, movement, economy, buildings, combat, vision, technology, the AI, determinism, source rules
 npm run typecheck
 npm run dev            # pages at http://localhost:5173
 npm run build          # writes dist/playtest.html and dist/tick-rate-lab.html
@@ -118,6 +119,47 @@ npm run check:browser  # reference match must give the same checksum in a browse
   believes: terrain and enemy buildings stay drawn as last seen until someone
   looks again.
 
+## Ages and technology
+
+`src/sim/tech.ts`. A match passes through four ages: Early Medieval
+(800–1000), High Medieval (1000–1250), Late Medieval (1250–1450) and Early
+Modern (1450–1600). A player leaves one for the next by choosing one of two
+**reforms** at the town centre, each a real change in how medieval societies
+raised food, money or soldiers. It needs two kinds of building standing, costs
+food and gold, takes a minute or more, and leaves its mark for the rest of the
+match; the reform not chosen is closed.
+
+| Leaving | One reform | The other |
+|---|---|---|
+| Early Medieval | Open fields: farms a fifth faster | Knight service: soldiers train a fifth faster |
+| High Medieval | Town charters: gold and stone a quarter faster | Paid retinues: soldiers a tenth more hit points |
+| Late Medieval | Standing companies: soldiers 15% cheaper | Gunfounding: handgunners hit harder and further |
+
+Seventeen **technologies** are researched at the buildings they belong to
+(ploughs at the mill, steel and armour at the blacksmith, pikes at the
+barracks). Research sits in a building's queue like a unit in training, is
+paid for when queued and refunded if cancelled. Each carries a line on what it
+was and when.
+
+Later ages add soldiers in armour, bought with gold, and what beats them:
+
+| | Age | hp | hit | every | armour | and |
+|---|---|---|---|---|---|---|
+| man-at-arms | High Medieval | 130 | 11 | 1.75 s | 3 / 3 | no weakness to arrows |
+| knight | High Medieval | 190 | 14 | 1.75 s | 3 / 3 | +14 on a charge; still fears spears |
+| crossbowman | Late Medieval | 70 | 10 | 2.25 s | 0 / 0 | +10 against armour; shoots 5 tiles |
+| handgunner | Early Modern | 70 | 32 | 3.5 s | 0 / 0 | +6 against armour; shoots 4 tiles |
+
+How it works underneath: each player has their own copy of the unit and
+building figures (`world.types[player]`, read through `world.typeOf(slot)`).
+It is rebuilt from the starting figures in `entityTypes.ts` and the list of
+what that player has researched, additions first and percentages of the
+starting figure after, so the order of research makes no difference and
+nothing but the list need be saved. When research finishes, units already in
+the field gain what new ones would have. To add a technology, add an entry to
+`TECHS` and a name to `TechId`; the tests check that every one can be reached
+and changes something. A match can start in a later age (`startAge`).
+
 ## The skirmish AI
 
 `src/ai/skirmish.ts`. The AI is a player, not part of the simulation.
@@ -137,9 +179,11 @@ trees; builds a barracks, archery range, stable and tower, saving wood for
 each; keeps them training, leaning toward what beats the enemy soldiers it
 has seen; scouts; comes home to fight raiders; and attacks in waves that go
 from one known building to the next, falling back when two in three are lost
-and returning with more. `easy`, `standard` and `hard` differ in how often it
-thinks, how big it grows, how soon and how hard it attacks, and whether it
-counters what it sees. Nothing in it is random, so a match between two AIs
+and returning with more. It mines gold, chooses a reform when the town is big
+enough to bear it, and researches what its buildings offer. `easy`, `standard`
+and `hard` differ in how often it thinks, how big it grows, how soon and how
+hard it attacks, whether it counters what it sees, and how far through the
+ages it goes (easy stops at High Medieval, standard at Late Medieval). Nothing in it is random, so a match between two AIs
 plays out the same way every time.
 
 Its plans live outside the world, so they are not in a saved game: after
@@ -159,11 +203,11 @@ loading, it picks up from what it can see and has to scout again.
 
 ## Not in yet
 
-Walls, gates and siege engines; garrisoning; ages and technology; victory
-conditions in the simulation (the playtest calls the match when a town centre
-falls). Mending a building is free. Gold has nothing to be spent on yet.
-Evenly matched AIs tend to stalemate: without siege, a defended town is hard
-to break. Formations march as a block but do not keep ranks
+Walls, gates and siege engines; garrisoning; civilizations (everyone plays
+the same people, with the same reforms on offer); victory conditions in the
+simulation (the playtest calls the match when a town centre falls). Mending a
+building is free. Soldiers do not change their look as they are upgraded: a
+pikeman is drawn as the spearman he was. Formations march as a block but do not keep ranks
 on the way. Nothing blocks sight: units see over trees and hills alike, and
 high ground does not see further.
 

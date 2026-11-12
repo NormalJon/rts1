@@ -80,6 +80,7 @@ async function start(): Promise<void> {
   view.lookAt(home.x / 65536, home.y / 65536);
 
   const controls = new Controls(0, session, view, canvas, byId('select-box'), {
+    age: byId('age'),
     selection: byId('selection'),
     groups: byId('groups'),
     orders: byId('orders'),
@@ -212,9 +213,9 @@ async function start(): Promise<void> {
     if (now - windowStart >= 500) {
       const seconds = (now - windowStart) / 1000;
       stats.textContent =
-        `tick ${world.tick} · ${(ticks / seconds).toFixed(0)} ticks/s · ` +
-        `${ticks > 0 ? (simMs / ticks).toFixed(2) : '0.00'} ms/tick · ${(frames / seconds).toFixed(0)} fps · ` +
-        `${world.livingUnits().length} units · ${hashHex(hashWorld(world))}`;
+        `tick ${world.tick} · ${(ticks / seconds).toFixed(0)}/s · ` +
+        `${ticks > 0 ? (simMs / ticks).toFixed(2) : '0.00'} ms · ${(frames / seconds).toFixed(0)} fps · ` +
+        `${hashHex(hashWorld(world))}`;
       windowStart = now;
       frames = 0;
       ticks = 0;
