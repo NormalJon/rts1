@@ -108,10 +108,73 @@ those are the next step, playable parity.
   otherwise try to import `bin` and `obj`.
 - `scripts/unity-batch.ps1` runs the editor without its window: to import and
   compile, to run a method (`-Method Rts.Game.EditorTools.ProjectSetup.Run`),
-  or to run the tests (`-Tests EditMode`, `-Tests PlayMode`). The editor must
-  not have the project open at the time. `-Tests PlayMode` also leaves
-  pictures of the match in `unity/Logs/Snapshots`: look at them after any
-  change to what is drawn.
+  or to run the tests (`-Tests EditMode`, `-Tests PlayMode`, with
+  `-Filter OrdersTests` for one group of them). The editor must not have the
+  project open at the time. `-Tests PlayMode` also leaves pictures of the
+  match in `unity/Logs/Snapshots`: look at them after any change to what is
+  drawn. It stops Unity after `-TimeoutSeconds` (900 unless told otherwise)
+  and says so, because a test that waits for something that never comes would
+  otherwise run for ever: with no window, "wait for the end of the frame"
+  never returns. After changing `ProjectSetup`, run it again with `-Method`
+  before the tests, since the scene and the materials are its work.
+
+Step 11, playable parity, is finished on the branch
+`step-11-playable-parity` and is **not merged**: it waits for the owner to
+play a skirmish in Unity and say merge. With it the owner leads blue against
+the skirmish AI on red, with the browser playtest's mouse and keys: selecting,
+every order, building and placing, training and research, the fog of war, and
+a proper display with a minimap. Watching two AIs is still there (the "Watch a
+match" button in the game, the RTS menu in the editor, or `mode` on
+`MatchRunner`). Nothing in `csharp/Rts.Core` was changed.
+
+What step 11 added, all in `unity/Assets/Game`:
+
+- `Runtime/PlayerControls.cs`: `src/client/game/controls.ts` in C#, kept in
+  the same order so the two can be read side by side. It decides what a click,
+  a drag or a key means, keeps the selection and the control groups, and gives
+  orders **only** as commands through `LocalSession.Issue`. It reads no device
+  and draws no panel.
+- `Runtime/PlayerInput.cs`: reads the mouse and keyboard through the Input
+  System package and tells `PlayerControls` what happened. Letters follow the
+  keyboard's layout (Q is the key marked Q).
+- `Runtime/Hud.cs`, `Runtime/Minimap.cs`, `UI/Hud.uss`, `UI/Theme.tss`,
+  `UI/Panel.asset`: the display. It is laid out as `page.html` is. It only
+  reads the world and the controls; a button calls the same method on
+  `PlayerControls` that its key does.
+- `Runtime/Sight.cs`: what blue's side can see, read from the simulation's own
+  counts (`world.seen`, `world.explored`, `Vision.CanSee`), and the fog as a
+  picture with a dot to a tile. `Runtime/FogPass.cs` and `Shaders/Fog.shader`
+  draw it over the whole picture once the ground and everything standing on it
+  is drawn, and before the selection rings, order markers and the plot under
+  the pointer, which stay bright.
+- `Runtime/ScreenMap.cs`: what is under the pointer, answered from what the
+  player believes is there.
+- `BuildingViews` is now also the player's memory of buildings, `UnitViews`
+  hides whoever is out of sight, `TerrainView` repaints only tiles in sight,
+  and `Overlays` draws the rings, marks and plots. `MatchHud` is gone.
+- `MatchRunner` has a `mode` (`Play` or `Watch`) and an `opponent` level. The
+  level the player last picked in the game is kept by Unity's `PlayerPrefs`
+  and used next time. `MatchRunner.Next` asks for a particular match; the
+  checks use it.
+
+**The display is UI Toolkit, not uGUI.** Why: it is the system Unity now
+builds game interfaces on; the whole display is written as text (one C# file
+and one style sheet, much as the browser page is HTML and CSS), so nothing has
+to be wired by hand in the editor and `ProjectSetup` can make the scene from
+nothing; and its style sheet takes the browser page's sizes and colours almost
+line for line. What it cost: it shows no hints of its own in a running game,
+so `Hud` shows them itself when the pointer rests on a button; it has no
+dashed borders; and it ignores the mouse when the game's window is not in
+front, which the checks have to get round (see `PlayRig.WakeTheDisplay`).
+Health bars, selection rings and markers are not in the display: they are
+drawn in the scene, as in step 10.
+
+Two things about the fog that are easy to break. See-through things that lie
+on the ground (the water, the bare plot under a building) must be drawn with
+the ground and not after it, or they shine through the fog: `ProjectSetup`
+gives their materials a queue offset of -500 for this and complains if Unity
+has put them back. And anything meant to stay bright over the fog must use the
+`Overlay` material, which is drawn after it.
 
 In the scene, a tile at (x, y) is drawn at (x * 2, height, -y * 2) metres:
 south is toward the camera, so the map is the way round it is in the browser.
@@ -124,15 +187,37 @@ Checks that must stay green: `npm test` (257 tests), `npm run typecheck`,
 `-c Release`), and in Unity `scripts\unity-batch.ps1 -Tests EditMode` (15
 tests, under a minute: every recorded match replays to the same checksum on
 every tick, and the AI playing the three AI matches itself reaches the same
-checksums) and `-Tests PlayMode` (1 test, under half a minute: the match
-scene plays 26 minutes of a match, everything alive is drawn, and the match
-ends in the same state as the same match played with no picture). The
-reference match must hash to
+checksums) and `-Tests PlayMode` (7 tests, about three quarters of a minute;
+see below). The reference match must hash to
 `8faaf6a6` (`test/determinism.test.ts`, `scripts/browser-check.mjs`,
 `test/recordings.test.ts`, `csharp/Rts.Core.Tests/ReplayTests.cs` and
 `unity/Assets/Game/Tests/Editor/RecordedMatchTests.cs`); change
 that number only when a change in how matches play out is intended, and then
 record again (`npm run record`) and make the same change in the C#.
+
+The seven PlayMode tests (`unity/Assets/Game/Tests/Play`), which also leave
+pictures in `unity/Logs/Snapshots`, display included:
+
+- `MatchSceneTests`: two AIs play 26 minutes with nobody at the controls,
+  everything alive is drawn, and the match ends in the same state as the same
+  match played with no picture.
+- `SelectionTests`, `OrdersTests`, `FogTests`, `DisplayTests`: the playable
+  game. They play it with a pretend mouse and keyboard (`PlayRig`), which the
+  game reads through the Input System exactly as it reads real ones; none of
+  them gives an order by calling the controls or the session. Between them:
+  every way of selecting; fifteen kinds of order, each seen to take effect in
+  the match, after which the recorded commands replayed with no picture reach
+  the same checksum; mending, in a match where the hard AI comes and damages
+  the town centre; the picture, the fog and the minimap holding only what
+  blue's side can see through five minutes against the hard AI, with a scout
+  sent to the red town; the display's words, buttons, hints, minimap and
+  banner; and starting a new match from the display.
+
+The pictures are drawn for a screen 1920 by 1080, but the checks themselves
+run on a screen 640 by 480, which is all Unity gives a test with no window.
+So a check must turn the view to a thing before clicking it (`Face` in
+`OrdersTests`), or the click lands under a panel; `PlayRig.ScreenOfTile` says
+so when it would.
 
 Checked on the owner's computer in November 2026: `npm test` and
 `npm run typecheck` pass under Node.js 26, and the reference match gave
@@ -151,6 +236,30 @@ looked at by Claude from the opening to 26 minutes in (both towns, villagers
 at work, a fight, the whole map). The TypeScript checks were not run again:
 nothing they cover was touched. In Unity the simulation took about 0.18
 milliseconds a tick late in a 36-minute match between two hard AIs.
+
+Checked there on 12 November 2026 for step 11: the 289 C# tests before
+anything was changed, and at the end the 15 EditMode and the 7 PlayMode
+tests, with some thirty pictures looked at by Claude (selection, placing,
+training, the rally flag, the scout at the red town, the fog over the whole
+map, the controls list, a hint, the banner, watching). The Unity checks could
+not be run before the work began, because the editor was open; the first
+thing run was the step 10 test against the new code, which passed. Looking at
+the pictures found one fault no test had: the river shone through the fog. It
+is fixed and `FogTests` now looks for it. The TypeScript checks were not run:
+nothing they cover was touched.
+
+Never checked for step 11: **a real mouse and keyboard in a real window**.
+The checks drive the game through Unity's input system, but with no window
+there is no real pointer, no window focus, and no editor in the way. Only the
+owner playing can confirm that clicks land where they are aimed, that dragging
+a box feels right, that the wheel and the keys do what the list of controls
+says, and that the display is the right size on their screen. Also not
+checked: the display on a screen that is not 16 by 9; a keyboard that is not
+laid out as an English one; ctrl with a digit inside the editor, where Unity
+uses it to change window (shift with a digit saves a group too, and is what
+the controls list tells the owner to use); and the frame rate with the
+display on (off-screen, a frame with a tick in it took about 2.3
+milliseconds late in a match, against about 2 before).
 
 Never checked: the Unity picture on a screen at the owner's frame rate (the
 tests draw off-screen; one frame with 106 units, 95 buildings and 3,000 trees
@@ -196,10 +305,16 @@ The work has moved here from the cloud workspace.
   unity.com in place of the app package. Do not copy the licence file across
   without the owner saying so.
 - To put the Unity version in front of the owner, start the editor with
-  `-projectPath C:\dev\rts_1\unity -executeMethod Rts.Game.EditorTools.Watch.Run`
-  (it opens the match and presses Play), or tell them: open the project from
-  Unity Hub and press Play. Keys: arrows or W A S D to move, the wheel to
-  zoom, + and - for speed, space to pause, 1 and 2 to jump to a town.
+  `-projectPath C:\dev\rts_1\unity -executeMethod Rts.Game.EditorTools.Watch.Play`
+  (it opens the match and presses Play, with the owner leading blue), or tell
+  them: open the project from Unity Hub and press Play. `Watch.Run` in place
+  of `Watch.Play` starts a match between two AIs to watch; both are on the
+  editor's RTS menu, and the game has a button to go from one to the other.
+  The keys when playing are the browser version's, and the Controls button in
+  the game lists them; `[` and `]` run time slower and faster and F10 pauses,
+  for testing. The keys when watching are as before: arrows or W A S D to
+  move, the wheel to zoom, + and - for speed, space to pause, 1 and 2 to jump
+  to a town. Close the editor again before running `scripts\unity-batch.ps1`.
 - A session's PATH can be out of date. If `dotnet` or `node` is not found,
   they are in `C:\Program Files\dotnet` and `C:\Program Files\nodejs`.
   Python is not installed.
@@ -257,7 +372,9 @@ or timers in game rules.
    AI play itself. **Done as step 10, and merged into `main` on 12 November
    2026.**
 3. Playable parity: selection, orders, HUD, minimap, fog, build and research
-   panels. Done when a full skirmish plays as it does in the browser.
+   panels. Done when a full skirmish plays as it does in the browser. **Built
+   as step 11 on the branch `step-11-playable-parity`; waits for the owner to
+   play it and say merge.**
 4. The graphics pass: lighting, terrain, water, effects, animation, sound, and
    the new art.
 5. Menus, saved games, builds for Windows and Mac, then two-player.
@@ -279,9 +396,12 @@ the fuller list of rules that came out of the work)
 
 ## Waiting on the owner
 
+- To play a skirmish in Unity (step 11) and say what is wrong with it, and
+  then whether to merge `step-11-playable-parity` into `main`. The mouse and
+  keyboard in a real window have not been tried by anyone: see "Never checked
+  for step 11" above for what to look at.
 - To say what the frame rate is in Unity when a big fight is on screen (the
-  bottom line of the text panel shows it). It has only been measured
-  off-screen.
+  panel at the top left shows it). It has only been measured off-screen.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
   what budget. Not needed until the graphics pass, but worth looking early.
   Claude's suggestion of 12 November 2026, not yet agreed: free scanned

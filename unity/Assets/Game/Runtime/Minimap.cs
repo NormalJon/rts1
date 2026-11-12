@@ -44,6 +44,10 @@ namespace Rts.Game
         readonly VisualElement lines;
         float seconds;
         bool dragging;
+        /// <summary>What the picture was last painted for, so that it is painted again only when that has changed.</summary>
+        int paintedTick = -1;
+        bool paintedLifted;
+        float sincePainted;
 
         /// <summary>What goes in the display: the picture with the lines drawn over it.</summary>
         public readonly VisualElement element;
@@ -140,6 +144,21 @@ namespace Rts.Game
         public void Draw(float dt, Func<int, bool> selected)
         {
             seconds += dt;
+            for (int i = pings.Count - 1; i >= 0; i--)
+            {
+                if (seconds - pings[i].born >= PING_SECONDS) pings.RemoveAt(i);
+            }
+            // The lines move with the view and the rings with the clock, so they are drawn every frame.
+            screen.ViewCorners(corners);
+            lines.MarkDirtyRepaint();
+            // The picture under them changes only when the match moves on, the fog is lifted or let
+            // fall, or the selection changes; a tenth of a second is soon enough for the last.
+            sincePainted += dt;
+            if (world.tick == paintedTick && sight.Lifted == paintedLifted && sincePainted < 0.1f) return;
+            paintedTick = world.tick;
+            paintedLifted = sight.Lifted;
+            sincePainted = 0f;
+
             int wide = picture.width;
             int tall = picture.height;
             Color32 dark = Palette.MINIMAP_DARK;
@@ -183,13 +202,6 @@ namespace Rts.Game
 
             picture.SetPixels32(dots);
             picture.Apply(false);
-
-            for (int i = pings.Count - 1; i >= 0; i--)
-            {
-                if (seconds - pings[i].born >= PING_SECONDS) pings.RemoveAt(i);
-            }
-            screen.ViewCorners(corners);
-            lines.MarkDirtyRepaint();
 
             void Fill(int left, int top, int width, int height, Color32 colour)
             {

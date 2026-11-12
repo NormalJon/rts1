@@ -6,7 +6,10 @@ simulation loop; maps, pathfinding and unit movement with a 3D view to play
 it in; resources and gathering; buildings, training and population; combat
 and the counter triangle; fog of war; a skirmish AI to play against; then
 ages and technology. Step nine carried the simulation and the AI
-over to C# for a game engine to draw (`csharp/`, with its own README).
+over to C# for a game engine to draw (`csharp/`, with its own README). Steps
+ten and eleven put the game in the Unity engine (`unity/`): first the picture,
+then the playtest's selection, orders, fog and display, so that a skirmish
+against the AI can be played there as it can in the browser.
 
 ## Commands
 
@@ -21,7 +24,7 @@ npm run record         # play the reference matches and write them to recordings
 npm run check:recordings  # play them again and compare with what is on disk
 dotnet test csharp/Rts.slnx  # the C# port must replay every recording exactly and pass its own rule-by-rule tests (needs the .NET SDK)
 scripts\unity-batch.ps1 -Tests EditMode   # the same recordings replayed inside Unity (Windows, Unity 6.3, editor closed)
-scripts\unity-batch.ps1 -Tests PlayMode   # the match scene played and checked; leaves pictures in unity/Logs/Snapshots
+scripts\unity-batch.ps1 -Tests PlayMode   # the game in Unity played by a pretend mouse and keyboard and checked; leaves pictures in unity/Logs/Snapshots
 ```
 
 ## Layout
@@ -37,7 +40,7 @@ scripts\unity-batch.ps1 -Tests PlayMode   # the match scene played and checked; 
 | `scripts/` | Page build, the cross-browser checksum check, the match recorder, and `unity-batch.ps1`, which runs the Unity editor without its window. |
 | `recordings/` | Ten matches played by this TypeScript game and written down in full: settings, every command, and the checksum after every tick. The C# port is held to them. |
 | `csharp/` | The simulation and the AI again in C#, as a library with no engine code, the tests that replay the recordings, and the tests in `test/` translated rule by rule. See `csharp/README.md`. |
-| `unity/` | The game in Unity 6: a project that compiles `csharp/Rts.Core` as it stands and draws what it does. So far it shows a match between two AIs; open it from Unity Hub and press Play. |
+| `unity/` | The game in Unity 6: a project that compiles `csharp/Rts.Core` as it stands, draws what it does, and takes the player's orders. Open it from Unity Hub and press Play for a skirmish against the AI with the playtest's controls; a button in the game starts a match between two AIs to watch instead. See "The game in Unity" below. |
 | `art-pipeline/` | Generates the models the playtest uses, with its own `package.json`. Unity takes its copies from here. |
 | `docs/art-sources.md` | Survey of openly licensed art sources, with licence checks. |
 
@@ -198,6 +201,28 @@ plays out the same way every time.
 Its plans live outside the world, so they are not in a saved game: after
 loading, it picks up from what it can see and has to scout again.
 
+## The game in Unity
+
+`unity/Assets/Game`. The engine draws the picture and takes input; it never
+decides what happens in a match. The rules are `csharp/Rts.Core`, compiled by
+Unity from the same files the .NET tests run.
+
+| File in `Runtime/` | What it does |
+|---|---|
+| `MatchRunner` | Turns time into ticks and has the rest draw. `mode` says whether the player leads blue (`Play`) or two AIs play each other (`Watch`). |
+| `PlayerControls` | What a click, a drag or a key means: `src/client/game/controls.ts` in C#. Keeps the selection and gives orders only as commands through `LocalSession.Issue`. |
+| `PlayerInput` | Reads the mouse and keyboard (the Input System package) and tells `PlayerControls`. |
+| `Hud`, `Minimap`, `UI/Hud.uss` | The display, in UI Toolkit: stores, age, population, what is selected, the buttons, the queue, the minimap, messages, the banner. It reads the world and the controls and changes neither. |
+| `Sight`, `FogPass`, `Shaders/Fog.shader` | What the player's side can see, read from the simulation's own counts, and the fog drawn over what it cannot. |
+| `ScreenMap` | What is under the pointer, from what the player believes is there. |
+| `TerrainView`, `PropField`, `BuildingViews`, `UnitViews`, `Overlays`, `RtsCamera`, `Ground` | The ground, trees and deposits, buildings (and the memory of them), units, the rings, marks, bars and arrows, the camera, and where a tile is in the scene. |
+
+`Editor/ProjectSetup` makes everything that is made and not written (the
+materials, the scene, the display's panel settings); run it again after
+changing it. The tests in `Tests/Play` play the game with a pretend mouse and
+keyboard and check each order against the match. What they cannot check is a
+real mouse in a real window.
+
 ## Rules for code in `src/sim`
 
 `test/determinism-lint.test.ts` enforces these by reading the source:
@@ -214,7 +239,8 @@ loading, it picks up from what it can see and has to scout again.
 
 Walls, gates and siege engines; garrisoning; civilizations (everyone plays
 the same people, with the same reforms on offer); victory conditions in the
-simulation (the playtest calls the match when a town centre falls). Mending a
+simulation (the playtest and the Unity game call the match when a town centre
+falls, and play carries on). Mending a
 building is free. Soldiers do not change their look as they are upgraded: a
 pikeman is drawn as the spearman he was. Formations march as a block but do not keep ranks
 on the way. Nothing blocks sight: units see over trees and hills alike, and

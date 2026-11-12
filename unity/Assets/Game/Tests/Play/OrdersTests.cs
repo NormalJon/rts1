@@ -100,6 +100,53 @@ namespace Rts.Game.Tests
             Assert.That(controls.Selected, Is.EquivalentTo(ids), "selected by clicking");
         }
 
+        /// <summary>
+        /// Mending needs a building that has been hurt, and only the enemy can
+        /// do that. So blue sits still against the hard AI until red has come
+        /// and damaged something, and then a villager is sent to mend it.
+        /// </summary>
+        [UnityTest]
+        [Timeout(600000)]
+        public IEnumerator ADamagedBuildingIsMendedByARightClickWithAVillager()
+        {
+            yield return rig.Start(MatchMode.Play, Difficulty.Hard);
+            world = rig.world;
+            controls = rig.controls;
+
+            int hurt = World.NO_ENTITY;
+            int mender = World.NO_ENTITY;
+            for (int seconds = 0; seconds < 30 * 60 && (hurt == World.NO_ENTITY || mender == World.NO_ENTITY); seconds++)
+            {
+                rig.runner.Advance(SECOND);
+                hurt = World.NO_ENTITY;
+                mender = World.NO_ENTITY;
+                for (int slot = 0; slot < world.highWater; slot++)
+                {
+                    if (world.alive[slot] == 0 || world.owner[slot] != 0) continue;
+                    if (world.mobile[slot] == 0 && world.built[slot] == 1 && world.hp[slot] < world.TypeOf(slot).hp) hurt = world.IdAt(slot);
+                    if (world.mobile[slot] == 1 && world.TypeOf(slot).builds && world.carry[slot] == 0) mender = world.IdAt(slot);
+                }
+            }
+            Assert.That(hurt, Is.Not.EqualTo(World.NO_ENTITY), "red came and damaged one of blue's buildings within half an hour");
+            Assert.That(mender, Is.Not.EqualTo(World.NO_ENTITY), "and a villager is left to mend it");
+            Debug.Log($"[RTS] red damaged blue's {world.TypeOf(Slot(hurt)).name} by tick {world.tick}: {world.hp[Slot(hurt)]} of {world.TypeOf(Slot(hurt)).hp} hit points left");
+            // Nothing was drawn while red was awaited, so those who fell then are simply gone.
+            rig.runner.Units.DropTheDead();
+            yield return rig.Frames(2);
+
+            yield return Select(mender);
+            yield return Face(hurt);
+            Assert.That(rig.runner.Overlays.BarsDrawn, Is.GreaterThanOrEqualTo(1), "a damaged building shows a health bar");
+            yield return rig.Shoot("27-play-town-under-attack");
+            int before = Commands();
+            yield return rig.RightClick(rig.ScreenOf(hurt));
+            Assert.That(Commands(), Is.EqualTo(before + 1));
+            Assert.That(rig.runner.Session.Replay().commands.Last(entry => entry.player == 0).command.kind, Is.EqualTo(CommandKind.Construct), "a right-click on a damaged building with a villager is an order to mend it");
+            yield return rig.Play(1);
+            Assert.That(world.job[Slot(mender)], Is.EqualTo(Job.ToSite).Or.EqualTo(Job.Constructing), "the villager goes to mend it");
+            Assert.That(world.jobTarget[Slot(mender)], Is.EqualTo(hurt));
+        }
+
         [UnityTest]
         [Timeout(600000)]
         public IEnumerator EveryOrderGivenThroughTheControlsTakesEffectAndTheMatchReplaysWithoutAPicture()

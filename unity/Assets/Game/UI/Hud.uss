@@ -95,6 +95,15 @@
 
 .help { margin-top: 12px; padding: 12px 6px 12px 14px; width: 330px; max-height: 660px; }
 .help-scroll { flex-shrink: 1; }
+/* The bar the list is scrolled by: a thin dark rail, without the arrows at its ends. */
+.help-scroll .unity-scroller--vertical { width: 8px; border-width: 0; background-color: rgba(0, 0, 0, 0); }
+.help-scroll .unity-scroller--vertical .unity-scroller__low-button { display: none; }
+.help-scroll .unity-scroller--vertical .unity-scroller__high-button { display: none; }
+.help-scroll .unity-scroller--vertical .unity-scroller__slider { margin-top: 0; margin-bottom: 0; width: 8px; }
+.help-scroll .unity-scroller--vertical .unity-scroller__slider .unity-base-slider__tracker { background-color: rgba(53, 67, 60, 0.55); border-width: 0; border-radius: 4px; }
+.help-scroll .unity-scroller--vertical .unity-scroller__slider .unity-base-slider__dragger { background-color: #6f7d73; border-width: 0; border-radius: 4px; width: 8px; left: 0; }
+.help-scroll .unity-scroller--vertical .unity-scroller__slider .unity-base-slider__dragger-border { border-width: 0; background-color: rgba(0, 0, 0, 0); }
+
 .help-row { flex-direction: row; margin-bottom: 6px; margin-right: 8px; }
 .help-keys { width: 98px; flex-shrink: 0; font-size: 11.5px; color: #8cc0ea; }
 .help-what { flex-grow: 1; flex-shrink: 1; flex-basis: 0; font-size: 13px; white-space: normal; }

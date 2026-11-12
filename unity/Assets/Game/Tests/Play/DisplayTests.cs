@@ -71,6 +71,19 @@ namespace Rts.Game.Tests
             yield return rig.Frames(2);
             Assert.That(hud.ToastText, Does.Contain("needs the High Medieval age"), "and the display says so");
 
+            // ---- Resting the pointer on a button says what it is ---------------------------------
+            Assert.That(hud.ScreenPlaceOf("attack-move", out Vector2 orderButton), Is.True);
+            yield return rig.MoveTo(orderButton);
+            yield return rig.Frames(2);
+            Assert.That(hud.TipText, Is.EqualTo("March there, fighting whatever they meet"), "what the attack-move button is");
+            yield return rig.Shoot("39-display-what-a-button-is", () => hud.ShowTipFor("attack-move"));
+            hud.ShowHelp(true);
+            yield return rig.Shoot("38-display-list-of-controls");
+            hud.ShowHelp(false);
+            yield return rig.MoveTo(rig.ScreenOf(villager));
+            yield return rig.Frames(2);
+            Assert.That(hud.TipText, Is.EqualTo(""), "and it goes when the pointer leaves");
+
             // ---- The order buttons ------------------------------------------------------------
             Assert.That(hud.Press("attack-move"), Is.True);
             Assert.That(controls.AimingAt, Is.EqualTo(Aiming.AttackMove));

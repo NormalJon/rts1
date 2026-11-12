@@ -76,6 +76,8 @@ namespace Rts.Game
         string groupsFor = "";
         int idleShown = -1;
         readonly List<VisualElement> actionButtons = new List<VisualElement>();
+        /// <summary>What is said of each button when the pointer rests on it.</summary>
+        readonly Dictionary<VisualElement, string> abouts = new Dictionary<VisualElement, string>();
         readonly List<int> busy = new List<int>();
         readonly List<VisualElement> productionBars = new List<VisualElement>();
         /// <summary>What the player had researched when last looked at, to announce what is new.</summary>
@@ -93,6 +95,8 @@ namespace Rts.Game
         public string StoresText(int resource) => stores[resource].text;
         public string PopulationText => population.text;
         public string AgeText => age.text;
+        /// <summary>What is being said about the button under the pointer, or an empty string.</summary>
+        public string TipText => tip != null && tip.style.display == DisplayStyle.Flex ? tip.text : "";
         /// <summary>The names on the buttons of the action row, left to right.</summary>
         public List<string> ActionLabels()
         {
@@ -196,8 +200,10 @@ namespace Rts.Game
             button.AddManipulator(new Clickable(onClick));
             if (!string.IsNullOrEmpty(about))
             {
+                abouts[button] = about;
                 button.RegisterCallback<PointerEnterEvent>(_ => ShowTip(button, about));
                 button.RegisterCallback<PointerLeaveEvent>(_ => HideTip());
+                button.RegisterCallback<DetachFromPanelEvent>(_ => abouts.Remove(button));
             }
             return button;
         }
@@ -337,7 +343,7 @@ namespace Rts.Game
                 Row("F", "Look at the last place you were attacked");
                 Row("del", "Pull down the selected building");
                 Row(".", "Jump to the next idle villager");
-                Row("ctrl + 1–9", "Save the selection as a group (shift works too)");
+                Row("shift + 1–9", "Save the selection as a group (ctrl works too, but inside the Unity editor ctrl and a digit changes window)");
                 Row("1–9", "Recall a group; twice to jump to it");
                 Row("arrows", "Move the view, or drag with the middle button");
                 Row("wheel  + −", "Zoom");
@@ -397,6 +403,15 @@ namespace Rts.Game
                 tip.style.bottom = StyleKeyword.Auto;
                 tip.style.top = at.yMax - all.yMin + 6f;
             }
+        }
+
+        /// <summary>Shows what is said of a button as if the pointer were resting on it: for taking a picture of it.</summary>
+        public bool ShowTipFor(string name)
+        {
+            VisualElement button = root != null ? root.Q(name) : null;
+            if (button == null || !abouts.TryGetValue(button, out string about)) return false;
+            ShowTip(button, about);
+            return true;
         }
 
         void HideTip()
@@ -536,7 +551,7 @@ namespace Rts.Game
                     int at = side * EntityTypes.RESOURCE_COUNT;
                     words.Append('\n').Append(Palette.TEAM_NAMES[side % Palette.TEAM_NAMES.Length]).Append(": ")
                         .Append(EntityTypes.AGE_NAMES[world.age[side]])
-                        .Append(" · ").Append(people).Append(" people, ").Append(standing).Append(" buildings")
+                        .Append(" · ").Append(people).Append(people == 1 ? " person, " : " people, ").Append(standing).Append(standing == 1 ? " building" : " buildings")
                         .Append(" · food ").Append(world.stock[at])
                         .Append(", wood ").Append(world.stock[at + 1])
                         .Append(", stone ").Append(world.stock[at + 2])

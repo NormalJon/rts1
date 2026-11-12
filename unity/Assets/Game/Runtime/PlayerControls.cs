@@ -117,7 +117,8 @@ namespace Rts.Game
         float alpha = 1f;
         int idleCursor;
         double now;
-        double watchDue;
+        /// <summary>The tick on which the player's own are next looked over for wounds.</summary>
+        int watchTick;
         string toast = "";
         double toastUntil;
 
@@ -1002,9 +1003,10 @@ namespace Rts.Game
                 toastUntil = 0.0;
                 Stale = true;
             }
-            if (now >= watchDue)
+            // Five times a second of the match's own time, however fast it is being run.
+            if (world.tick >= watchTick)
             {
-                watchDue = now + 0.2;
+                watchTick = world.tick + Math.Max(1, world.config.tickRate / 5);
                 WatchForAttack();
             }
         }

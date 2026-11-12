@@ -29,6 +29,9 @@ namespace Rts.Game.Tests
         bool sawAnEnemy;
         bool lostSightOfOne;
         bool rememberedABuilding;
+        bool alarmed;
+        bool pinged;
+        string alarm = "";
         int treesRemembered;
 
         [TearDown]
@@ -150,10 +153,23 @@ namespace Rts.Game.Tests
                 rig.runner.Advance(60);
                 yield return null;
                 Check("at tick " + world.tick);
+                // The scout is hit far from where the player is looking: they are told, and the minimap flashes there.
+                if (controls.Alarmed && !alarmed)
+                {
+                    alarmed = true;
+                    alarm = controls.Toast;
+                    pinged = rig.hud.Minimap.Pings > 0;
+                    yield return rig.Shoot("34-fog-scout-attacked-alarm");
+                }
             }
             Assert.That(sawAnEnemy, Is.True, "a red unit came into sight and was drawn");
             Assert.That(lostSightOfOne, Is.True, "a red unit went out of sight and was hidden");
             Assert.That(rememberedABuilding, Is.True, "a red building went out of sight and stayed on the picture as last seen");
+            Assert.That(alarmed, Is.True, "the player was told when the scout was hit out of view");
+            Assert.That(alarm, Does.StartWith("Your people are under attack"));
+            Assert.That(pinged, Is.True, "and the minimap flashed where");
+            yield return rig.Tap(Key.F);
+            Assert.That(new Vector2(rig.view.targetX, rig.view.targetY), Is.EqualTo(controls.AlarmAt), "F looks at the place");
 
             // ---- Ground seen before is dimmer than ground in sight, and lighter than the dark ----
             int seenGrass = OpenGrass(tile => sight.SeesTile(tile));

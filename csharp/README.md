@@ -243,9 +243,12 @@ what is added for it to `Helpers.BrokenInvariant`.
   `unity/Assets/Game/Tests/Editor/RecordedMatchTests.cs` plays all ten
   recorded matches there, and has the AI play the three AI matches itself,
   with the same checksum on every tick (run with
-  `scripts\unity-batch.ps1 -Tests EditMode`). The editor runs C# on Mono. A
-  built game is compiled another way (IL2CPP), and nothing has been run that
-  way yet.
+  `scripts\unity-batch.ps1 -Tests EditMode`). With a player giving orders it
+  is checked there too: `unity/Assets/Game/Tests/Play/OrdersTests.cs` plays a
+  match through the game's own controls and then replays the commands it
+  recorded, with no picture, to the same checksum. The editor runs C# on
+  Mono. A built game is compiled another way (IL2CPP), and nothing has been
+  run that way yet.
 - On a Mac, or any ARM processor.
 - Speed in a large late-game battle. For scale: the 36-minute match between two
   hard AIs (64,800 ticks, about 240 units and buildings at the end) replays in

@@ -350,7 +350,8 @@ namespace Rts.Game.Tests
         /// Takes a picture of the match as it would be on a screen 1920 by 1080,
         /// display and all, and leaves it in Logs/Snapshots.
         /// </summary>
-        public IEnumerator Shoot(string name)
+        /// <param name="whenLaidOut">Something to do once the display has been laid out for the picture, and before it is taken.</param>
+        public IEnumerator Shoot(string name, Action whenLaidOut = null)
         {
             const int WIDTH = 1920;
             const int HEIGHT = 1080;
@@ -370,6 +371,12 @@ namespace Rts.Game.Tests
                 yield return null;
                 yield return null;
                 yield return null;
+                if (whenLaidOut != null)
+                {
+                    whenLaidOut();
+                    yield return null;
+                    yield return null;
+                }
             }
 
             var target = new RenderTexture(WIDTH, HEIGHT, 24, RenderTextureFormat.ARGB32) { antiAliasing = 4 };
