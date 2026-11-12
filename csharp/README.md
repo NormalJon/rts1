@@ -239,10 +239,13 @@ what is added for it to `Helpers.BrokenInvariant`.
 
 ## Not checked
 
-- Inside Unity or Godot. The library has only been built and run with the .NET
-  SDK on Windows (x64). Unity compiles C# with its own toolchain (Mono in the
-  editor, IL2CPP for release builds); nothing here should trouble it, but that
-  is a belief until the replay tests have been run there.
+- Inside a built Unity game, or Godot. In the Unity editor it is checked:
+  `unity/Assets/Game/Tests/Editor/RecordedMatchTests.cs` plays all ten
+  recorded matches there, and has the AI play the three AI matches itself,
+  with the same checksum on every tick (run with
+  `scripts\unity-batch.ps1 -Tests EditMode`). The editor runs C# on Mono. A
+  built game is compiled another way (IL2CPP), and nothing has been run that
+  way yet.
 - On a Mac, or any ARM processor.
 - Speed in a large late-game battle. For scale: the 36-minute match between two
   hard AIs (64,800 ticks, about 240 units and buildings at the end) replays in

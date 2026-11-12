@@ -20,6 +20,8 @@ npm run check:browser  # reference match must give the same checksum in a browse
 npm run record         # play the reference matches and write them to recordings/
 npm run check:recordings  # play them again and compare with what is on disk
 dotnet test csharp/Rts.slnx  # the C# port must replay every recording exactly and pass its own rule-by-rule tests (needs the .NET SDK)
+scripts\unity-batch.ps1 -Tests EditMode   # the same recordings replayed inside Unity (Windows, Unity 6.3, editor closed)
+scripts\unity-batch.ps1 -Tests PlayMode   # the match scene played and checked; leaves pictures in unity/Logs/Snapshots
 ```
 
 ## Layout
@@ -32,10 +34,11 @@ dotnet test csharp/Rts.slnx  # the C# port must replay every recording exactly a
 | `src/client/game/` | The 3D playtest: view, camera, selection and orders, minimap. |
 | `src/client/` | The Tick Rate Lab debug page. |
 | `test/` | Vitest suites. `helpers.ts` plays randomised matches for the determinism tests; `recordings.ts` says which matches are recorded for the C# port. |
-| `scripts/` | Page build, the cross-browser checksum check, and the match recorder. |
+| `scripts/` | Page build, the cross-browser checksum check, the match recorder, and `unity-batch.ps1`, which runs the Unity editor without its window. |
 | `recordings/` | Ten matches played by this TypeScript game and written down in full: settings, every command, and the checksum after every tick. The C# port is held to them. |
 | `csharp/` | The simulation and the AI again in C#, as a library with no engine code, the tests that replay the recordings, and the tests in `test/` translated rule by rule. See `csharp/README.md`. |
-| `art-pipeline/` | Generates the models the playtest uses, with its own `package.json`. |
+| `unity/` | The game in Unity 6: a project that compiles `csharp/Rts.Core` as it stands and draws what it does. So far it shows a match between two AIs; open it from Unity Hub and press Play. |
+| `art-pipeline/` | Generates the models the playtest uses, with its own `package.json`. Unity takes its copies from here. |
 | `docs/art-sources.md` | Survey of openly licensed art sources, with licence checks. |
 
 ## How the core works

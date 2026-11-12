@@ -71,35 +71,66 @@ built on the branch `step-9-csharp-rule-tests`, and the owner said merge on
 New rules are to be written in C# with tests in `Rules/` in the same style,
 and what must always be true of them added to `Helpers.BrokenInvariant`.
 
-Step 10, the first picture in Unity, is under way on the branch
-`step-10-first-picture` (begun 12 November 2026, not finished, not merged).
-So far it has only the groundwork:
+Step 10, the first picture in Unity, is built on the branch
+`step-10-first-picture` (12 November 2026), pushed, and waiting for the owner
+to look at it and say merge. It shows a match between two skirmish AIs with
+nobody at the controls: the map, the river and its fords, trees and deposits,
+buildings going up, units walking, working and fighting, arrows, health bars,
+and a few lines of text. There are no orders, no selection and no fog yet;
+those are the next step, playable parity.
 
 - `unity/`: the Unity project, made from Unity's own "3D URP" template (the
   Universal Render Pipeline, chosen over the High Definition one because far
   more of the art on sale is made for it and it copes better with hundreds of
-  units), without the template's tutorial files, on packages that come with
-  the editor so that nothing has to be downloaded to open it. It holds no
-  game code yet.
+  units), without the template's tutorial files. Everything it needs comes
+  with the editor except glTFast, Unity's own importer for the `.glb` models,
+  which Unity downloads the first time.
+- `unity/Assets/Game/Runtime`: the display side. `MatchRunner` turns time into
+  ticks and has the rest draw; `TerrainView`, `PropField`, `BuildingViews`,
+  `UnitViews` and `Overlays` draw the ground, the trees and deposits, the
+  buildings, the units, and the arrows and bars; `RtsCamera` is the view;
+  `Ground` says where a tile position is in the scene. All of it only reads
+  the world. It follows `src/client/game/view.ts` closely, the same colours
+  and the same sums, so the two versions can be compared by eye.
+- `unity/Assets/Game/Editor`: `ProjectSetup` makes everything that is made and
+  not written (materials, the list of which model draws what, render
+  settings, the scene `Assets/Scenes/Match.unity`) and can be run again at any
+  time; it also copies changed models in from `art-pipeline/models`. `Watch`
+  opens the scene and presses Play. Both are on the editor's RTS menu.
+- `unity/Assets/Game/Tests`: the checks that run inside Unity (below).
 - `csharp/Rts.Core` is also a Unity package (`package.json` and
   `Rts.Core.asmdef` beside the `.csproj`), which `unity/Packages/manifest.json`
   points at. Unity compiles the same source files the .NET tests run; the
-  `.asmdef` forbids engine code in them.
+  `.asmdef` forbids engine code in them. The `.meta` files Unity writes there
+  are kept.
 - For that to work the .NET SDK's output had to leave the source folders:
   `csharp/Directory.Build.props` sends it to `csharp/.build/`. Unity would
-  otherwise try to import `bin` and `obj`. All 289 tests pass from there.
+  otherwise try to import `bin` and `obj`.
+- `scripts/unity-batch.ps1` runs the editor without its window: to import and
+  compile, to run a method (`-Method Rts.Game.EditorTools.ProjectSetup.Run`),
+  or to run the tests (`-Tests EditMode`, `-Tests PlayMode`). The editor must
+  not have the project open at the time. `-Tests PlayMode` also leaves
+  pictures of the match in `unity/Logs/Snapshots`: look at them after any
+  change to what is drawn.
 
-Checked: the library compiles with Unity's own compiler and reference files
-(run by hand, since the editor could not be started; see the licence note
-under "The owner's computer"). Not checked: anything inside the running
-editor.
+In the scene, a tile at (x, y) is drawn at (x * 2, height, -y * 2) metres:
+south is toward the camera, so the map is the way round it is in the browser.
+The models come in facing +Z with left and right swapped back (the importer
+does that), and are turned half a turn to face south.
 
 Checks that must stay green: `npm test` (257 tests), `npm run typecheck`,
-`npm run check:browser`, `npm run check:recordings`, and
+`npm run check:browser`, `npm run check:recordings`,
 `dotnet test csharp/Rts.slnx` (289 tests, about half a minute with
-`-c Release`). The reference match must hash to
+`-c Release`), and in Unity `scripts\unity-batch.ps1 -Tests EditMode` (15
+tests, under a minute: every recorded match replays to the same checksum on
+every tick, and the AI playing the three AI matches itself reaches the same
+checksums) and `-Tests PlayMode` (1 test, under half a minute: the match
+scene plays 26 minutes of a match, everything alive is drawn, and the match
+ends in the same state as the same match played with no picture). The
+reference match must hash to
 `8faaf6a6` (`test/determinism.test.ts`, `scripts/browser-check.mjs`,
-`test/recordings.test.ts` and `csharp/Rts.Core.Tests/ReplayTests.cs`); change
+`test/recordings.test.ts`, `csharp/Rts.Core.Tests/ReplayTests.cs` and
+`unity/Assets/Game/Tests/Editor/RecordedMatchTests.cs`); change
 that number only when a change in how matches play out is intended, and then
 record again (`npm run record`) and make the same change in the C#.
 
@@ -114,9 +145,19 @@ Checked again the same day with the rule-by-rule tests added: the same
 checks, the 289 C# tests with overflow checking on, and that the new tests
 fail when a rule in a copy of the library is changed.
 
-Never checked: frame rate in a large late-game battle; determinism in Firefox
-or Safari; and the C# library inside a game engine, on a Mac, or on any
-processor other than this computer's.
+Checked there on 12 November 2026 for step 10: the 289 C# tests from their
+new place, the 15 and the 1 Unity tests, and thirteen pictures of the match
+looked at by Claude from the opening to 26 minutes in (both towns, villagers
+at work, a fight, the whole map). The TypeScript checks were not run again:
+nothing they cover was touched. In Unity the simulation took about 0.18
+milliseconds a tick late in a 36-minute match between two hard AIs.
+
+Never checked: the Unity picture on a screen at the owner's frame rate (the
+tests draw off-screen; one frame with 106 units, 95 buildings and 3,000 trees
+took under a millisecond there, which says little about a real window); a
+built game, which Unity compiles a different way (IL2CPP) from the editor;
+frame rate in a large late-game battle; determinism in Firefox or Safari; and
+the C# library on a Mac, or on any processor other than this computer's.
 
 ## The owner's computer
 
@@ -146,11 +187,19 @@ The work has moved here from the cloud workspace.
   while the editor looks in `%LOCALAPPDATA%\Unity\licenses`, which is empty.
   To see what the editor can see, run
   `Unity.Licensing.Client.exe --showEntitlements` from
-  `Editor\Data\Resources\Licensing\Client` in the editor's folder. Not yet
-  tried: whether opening a project from the Hub puts a licence where the
-  editor looks. If it does not, the remedy is the ordinary Unity Hub
-  installer from unity.com in place of the app package. Do not copy the
-  licence file across without the owner saying so.
+  `Editor\Data\Resources\Licensing\Client` in the editor's folder. What put
+  it right: the owner opened the project once from the Hub, which left a
+  licence where the editor looks, and the command line has worked since. That
+  licence says it needs renewing by 12 December 2026; if the command line
+  stops working again, ask the owner to open the project from the Hub once
+  more. Failing that, the remedy is the ordinary Unity Hub installer from
+  unity.com in place of the app package. Do not copy the licence file across
+  without the owner saying so.
+- To put the Unity version in front of the owner, start the editor with
+  `-projectPath C:\dev\rts_1\unity -executeMethod Rts.Game.EditorTools.Watch.Run`
+  (it opens the match and presses Play), or tell them: open the project from
+  Unity Hub and press Play. Keys: arrows or W A S D to move, the wheel to
+  zoom, + and - for speed, space to pause, 1 and 2 to jump to a town.
 - A session's PATH can be out of date. If `dotnet` or `node` is not found,
   they are in `C:\Program Files\dotnet` and `C:\Program Files\nodejs`.
   Python is not installed.
@@ -205,7 +254,8 @@ or timers in game rules.
    frozen as the reference while this is done. **Done, and merged into
    `main` on 12 November 2026.**
 2. First picture in the engine: map, camera, the existing models, watching the
-   AI play itself.
+   AI play itself. **Built as step 10 on `step-10-first-picture`, 12 November
+   2026; not merged until the owner says.**
 3. Playable parity: selection, orders, HUD, minimap, fog, build and research
    panels. Done when a full skirmish plays as it does in the browser.
 4. The graphics pass: lighting, terrain, water, effects, animation, sound, and
@@ -229,10 +279,7 @@ the fuller list of rules that came out of the work)
 
 ## Waiting on the owner
 
-- To open `C:\dev\rts_1\unity` once from Unity Hub ("Add", then "Add project
-  from disk"), wait for the editor to finish loading, and close it. That
-  shows whether the editor works when the Hub starts it, and may put the
-  licence where a command line can use it.
+- To watch the match in Unity and say whether to merge step 10.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
   what budget. Not needed until the graphics pass, but worth looking early.
   Claude's suggestion of 12 November 2026, not yet agreed: free scanned

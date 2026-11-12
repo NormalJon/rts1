@@ -1,0 +1,214 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8591a19d1af5ba47b3adba027a952b7, type: 3}
+  m_Name: ModelLibrary
+  m_EditorClassIdentifier: Rts.Game::Rts.Game.ModelLibrary
+  units:
+  - prefab: {fileID: 7694350883502175046, guid: c17af2fa56904a642b4671f472a32142, type: 3}
+    idle: {fileID: -2474113961476506421, guid: c17af2fa56904a642b4671f472a32142, type: 3}
+    walk: {fileID: -4832708865683171987, guid: c17af2fa56904a642b4671f472a32142, type: 3}
+    attack: {fileID: -7633015044865952520, guid: c17af2fa56904a642b4671f472a32142, type: 3}
+    chop: {fileID: 0}
+    height: 2.6999998
+  - prefab: {fileID: 7629871866812505290, guid: aadd3794b6830874586ba1fbabc6229f, type: 3}
+    idle: {fileID: -2474113961476506421, guid: aadd3794b6830874586ba1fbabc6229f, type: 3}
+    walk: {fileID: -4832708865683171987, guid: aadd3794b6830874586ba1fbabc6229f, type: 3}
+    attack: {fileID: 0}
+    chop: {fileID: 2886170702956120778, guid: aadd3794b6830874586ba1fbabc6229f, type: 3}
+    height: 1.9555166
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: -5441954402629676422, guid: 75bd56a334319d248911bb8e9947cbd0, type: 3}
+    idle: {fileID: -2474113961476506421, guid: 75bd56a334319d248911bb8e9947cbd0, type: 3}
+    walk: {fileID: -4832708865683171987, guid: 75bd56a334319d248911bb8e9947cbd0, type: 3}
+    attack: {fileID: -7633015044865952520, guid: 75bd56a334319d248911bb8e9947cbd0, type: 3}
+    chop: {fileID: 0}
+    height: 1.8499999
+  - prefab: {fileID: 6895532505948079178, guid: 286447e0cd04f3541bf15ec578ee42ee, type: 3}
+    idle: {fileID: -2474113961476506421, guid: 286447e0cd04f3541bf15ec578ee42ee, type: 3}
+    walk: {fileID: -4832708865683171987, guid: 286447e0cd04f3541bf15ec578ee42ee, type: 3}
+    attack: {fileID: -7633015044865952520, guid: 286447e0cd04f3541bf15ec578ee42ee, type: 3}
+    chop: {fileID: 0}
+    height: 3.97
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  - prefab: {fileID: 2903110954737244220, guid: a2afaa40ec9901e46a74459e00777d2e, type: 3}
+    idle: {fileID: -2474113961476506421, guid: a2afaa40ec9901e46a74459e00777d2e, type: 3}
+    walk: {fileID: -4832708865683171987, guid: a2afaa40ec9901e46a74459e00777d2e, type: 3}
+    attack: {fileID: -7633015044865952520, guid: a2afaa40ec9901e46a74459e00777d2e, type: 3}
+    chop: {fileID: 0}
+    height: 2.005
+  - prefab: {fileID: 756511959489748565, guid: 8123beaaace35434aa35e2ba742a84e5, type: 3}
+    idle: {fileID: -2474113961476506421, guid: 8123beaaace35434aa35e2ba742a84e5, type: 3}
+    walk: {fileID: -4832708865683171987, guid: 8123beaaace35434aa35e2ba742a84e5, type: 3}
+    attack: {fileID: -7633015044865952520, guid: 8123beaaace35434aa35e2ba742a84e5, type: 3}
+    chop: {fileID: 0}
+    height: 3.2145152
+  - prefab: {fileID: 1013797049753753920, guid: 76b7dee77e48d334597e77a486e18709, type: 3}
+    idle: {fileID: -2474113961476506421, guid: 76b7dee77e48d334597e77a486e18709, type: 3}
+    walk: {fileID: -4832708865683171987, guid: 76b7dee77e48d334597e77a486e18709, type: 3}
+    attack: {fileID: -7633015044865952520, guid: 76b7dee77e48d334597e77a486e18709, type: 3}
+    chop: {fileID: 0}
+    height: 1.915
+  - prefab: {fileID: -5913024903224584896, guid: f7aa6a55dd435534eb30cc52e955ad65, type: 3}
+    idle: {fileID: -2474113961476506421, guid: f7aa6a55dd435534eb30cc52e955ad65, type: 3}
+    walk: {fileID: -4832708865683171987, guid: f7aa6a55dd435534eb30cc52e955ad65, type: 3}
+    attack: {fileID: -7633015044865952520, guid: f7aa6a55dd435534eb30cc52e955ad65, type: 3}
+    chop: {fileID: 0}
+    height: 2.0535383
+  - prefab: {fileID: 0}
+    idle: {fileID: 0}
+    walk: {fileID: 0}
+    attack: {fileID: 0}
+    chop: {fileID: 0}
+    height: 0
+  buildings:
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 7223692884947621059, guid: 6199a863f3daab148b3115d8a1f2e092, type: 3}
+    reach: 4.58
+    height: 7.02
+  - prefab: {fileID: 6169589801714313651, guid: 829372af6de533744b156da84d77e318, type: 3}
+    reach: 2.8
+    height: 4.46
+  - prefab: {fileID: -5176073205896362703, guid: 5e5d6d799720a214fb1c78498a132cb4, type: 3}
+    reach: 2.75
+    height: 5.258995
+  - prefab: {fileID: -342358825817899106, guid: 75c0fe46b8d43044eba3c7a1b78c748a, type: 3}
+    reach: 2.7899954
+    height: 3.34
+  - prefab: {fileID: -3539087975983619375, guid: 76c67ec95ef4ccc46b8997f90fd0859c, type: 3}
+    reach: 2.82
+    height: 3
+  - prefab: {fileID: 1590919608170590015, guid: 5218466edfb8951449ecd3d73123ae4a, type: 3}
+    reach: 4.631781
+    height: 4.7391376
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 2468952860984427961, guid: c1f8bfac6877b81409304d0ecbc8c241, type: 3}
+    reach: 4.62
+    height: 3.9999998
+  - prefab: {fileID: -7498879040785072381, guid: a4b7a7c433da30947b6bc817dfa2554b, type: 3}
+    reach: 4.627232
+    height: 4.64
+  - prefab: {fileID: -1895668140845692080, guid: f60377b5460f4ce43a8b5f3201fa30ff, type: 3}
+    reach: 2.7595236
+    height: 11.799999
+  - prefab: {fileID: -4102735302384718312, guid: 619546b1e7ba4864ca4ee68587aa6f1b, type: 3}
+    reach: 2.82
+    height: 1.59
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 0}
+    reach: 0
+    height: 0
+  - prefab: {fileID: 1051458729181688879, guid: 8f814cfff9cb2aa4d8013d68b127ab9a, type: 3}
+    reach: 2.8099997
+    height: 4.125
+  oak:
+    prefab: {fileID: -4291767050962585522, guid: 25856d42d5baa2e4ea66fd44e11ea8ed, type: 3}
+    reach: 3.255539
+    height: 6.9932513
+  conifer:
+    prefab: {fileID: 5610608783412496813, guid: 1f51732669806dc4ca2475c154943827, type: 3}
+    reach: 1.7488558
+    height: 7.1
+  berries:
+    prefab: {fileID: 4380707446821052723, guid: fd2ea54aed426dd4980a9914f487c4fc, type: 3}
+    reach: 0.7571336
+    height: 1.1004015
+  stone:
+    prefab: {fileID: -6057371643265309230, guid: 6a8c7f71cbc7dc64cb27d6131f7357de, type: 3}
+    reach: 0.91168725
+    height: 1.3721709
+  gold:
+    prefab: {fileID: -2374799006686890761, guid: 5fe85cb991d49054eb0c3453d2726872, type: 3}
+    reach: 0.88854563
+    height: 1.197109
+  terrain: {fileID: 2100000, guid: 70769815ca8ed184280aac4f5142804a, type: 2}
+  water: {fileID: 2100000, guid: 60a1d8fa4015c50469a702c55afe1713, type: 2}
+  table: {fileID: 2100000, guid: 999421e349ff64c428558648987c4205, type: 2}
+  plot: {fileID: 2100000, guid: 04985c4841d49fe49841231df3629e3d, type: 2}
+  arrow: {fileID: 2100000, guid: f9577cf68d9f5654690fd2cfbf10eacc, type: 2}
+  barBack: {fileID: 2100000, guid: 9129331e32e659a43a9aa998b08ed285, type: 2}
+  barFill: {fileID: 2100000, guid: 627b41895cfa1484c98804ee9d13087b, type: 2}

@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "com.rts.core": "file:../../csharp/Rts.Core",
+    "com.unity.cloud.gltfast": "6.21.0",
     "com.unity.inputsystem": "1.20.1",
     "com.unity.render-pipelines.universal": "17.3.0",
     "com.unity.test-framework": "1.6.0",
