@@ -8,7 +8,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "node scripts/pages.mjs",
-    "check:browser": "node scripts/browser-check.mjs"
+    "check:browser": "node scripts/browser-check.mjs",
+    "record": "node scripts/record-matches.mjs",
+    "check:recordings": "node scripts/record-matches.mjs --check"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
