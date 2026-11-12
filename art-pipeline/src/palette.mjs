@@ -25,6 +25,7 @@ export const C = {
   iron: '#4d5056',
   steel: '#a4abb2',
   mail: '#868d94',
+  mailDark: '#666c73',
   skin: '#d6a47c',
   hose: '#6c5843',
   wraps: '#a8946f',

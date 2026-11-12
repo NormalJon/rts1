@@ -45,6 +45,51 @@
     }
   },
   {
+    "id": "man-at-arms",
+    "group": "units",
+    "label": "Man-at-arms",
+    "note": "Heavy foot of c. 1200: mail to the feet, a flat-topped great helm, heater shield and arming sword. The cut lands at 0.5 s.",
+    "file": "models/man-at-arms.glb",
+    "triangles": 364,
+    "bytes": 54260,
+    "bounds": {
+      "min": [
+        -0.38,
+        0,
+        -0.256
+      ],
+      "max": [
+        0.608,
+        2.005,
+        0.456
+      ]
+    },
+    "yaw": 0.55,
+    "clips": [
+      "idle",
+      "walk",
+      "attack"
+    ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.9
+      },
+      "attack": {
+        "duration": 1.2,
+        "hit": 0.5
+      }
+    },
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
     "id": "archer",
     "group": "units",
     "label": "Archer",

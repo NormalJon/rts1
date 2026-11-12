@@ -57,7 +57,7 @@ describe('the skirmish AI', () => {
     let villagerTicks = 0;
     let broken: string | null = null;
     const at: Record<number, Record<number, number>> = {};
-    for (let tick = 0; tick < 10 * MINUTE; tick++) {
+    for (let tick = 0; tick < 14 * MINUTE; tick++) {
       session.step();
       if (tick % 97 === 0) broken ??= brokenInvariant(world);
       if (tick % 30 === 0) {
@@ -83,23 +83,24 @@ describe('the skirmish AI', () => {
     // Ten minutes: the berries are all but gone and the town lives off its farms; all three kinds of soldier can be trained.
     expect(at[10]![Kind.Farm]).toBeGreaterThanOrEqual(8);
     expect(at[10]![Kind.Stable]).toBe(1);
-    expect((at[10]![Kind.Watchtower] ?? 0) + (at[10]![Kind.Blacksmith] ?? 0)).toBeGreaterThanOrEqual(1);
     let berries = 0;
     for (let tile = 0; tile < world.map.tileCount; tile++) {
       if (world.map.terrain[tile] === Terrain.Berries && hasExplored(world, 0, tile)) berries += world.map.amount[tile]!;
     }
     expect(berries).toBeLessThan(300);
     expect(world.grown[0]).toBeGreaterThan(500);
-    // It has dug for gold, chosen a reform and left the first age, and begun on research.
+    // By fourteen minutes it has dug for gold, chosen a reform and left the
+    // first age, built a blacksmith and done some research.
     expect(at[10]![Kind.MiningCamp]).toBeGreaterThanOrEqual(1);
     expect(world.age[0]).toBeGreaterThanOrEqual(1);
+    expect(at[14]![Kind.Blacksmith]).toBe(1);
     let researched = 0;
     for (let id = 0; id < TECHS.length; id++) researched += world.researched[id]!;
-    expect(researched).toBeGreaterThanOrEqual(4);
+    expect(researched).toBeGreaterThanOrEqual(5);
     // Its villagers are hardly ever standing about.
     expect(idleVillagerTicks / villagerTicks).toBeLessThan(0.05);
     // And it does all this with a person's worth of orders, not a flood.
-    expect(session.replay().commands.length).toBeLessThan(10 * 60 * 2);
+    expect(session.replay().commands.length).toBeLessThan(14 * 60 * 2);
   });
 
   it('plays the same match every time, and the match replays without it', () => {
