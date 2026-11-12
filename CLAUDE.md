@@ -39,27 +39,54 @@ The core build is finished in TypeScript, in eight steps:
 
 All eight steps are on `main`.
 
-Checks that must stay green: `npm test` (253 tests), `npm run typecheck`, and
-`npm run check:browser`. The reference match must hash to `8faaf6a6`
-(`test/determinism.test.ts` and `scripts/browser-check.mjs`); change that
-number only when a change in how matches play out is intended.
+Step 9, the C# port, is on the branch `step-9-csharp-port`, pushed and not
+yet merged. What is on it:
+
+- `recordings/`: ten matches played by the TypeScript game and written down
+  in full (settings, every command, the checksum after every tick), with the
+  recorder in `test/recordings.ts` and `scripts/record-matches.mjs`.
+- `csharp/Rts.Core`: all of `src/sim`, `src/ai` and
+  `src/session/localSession.ts` in C#, file for file, with no engine code.
+- `csharp/Rts.Core.Tests`: every recorded match replays to the same checksum
+  on every tick; the C# AI, playing the three AI matches itself, gives the
+  orders the TypeScript AI gave; saved games load and carry on identically.
+
+`csharp/README.md` says how the port is laid out, the rules its code keeps
+to, and what has not been checked. Read it before changing anything there.
+
+Checks that must stay green: `npm test` (257 tests), `npm run typecheck`,
+`npm run check:browser`, `npm run check:recordings`, and
+`dotnet test csharp/Rts.slnx` (38 tests). The reference match must hash to
+`8faaf6a6` (`test/determinism.test.ts`, `scripts/browser-check.mjs`,
+`test/recordings.test.ts` and `csharp/Rts.Core.Tests/ReplayTests.cs`); change
+that number only when a change in how matches play out is intended, and then
+record again (`npm run record`) and make the same change in the C#.
 
 Checked on the owner's computer in November 2026: `npm test` and
 `npm run typecheck` pass under Node.js 26, and the reference match gave
 `8faaf6a6` in Node.js and, by hand, in Chromium 156. The opening scene of the
 playtest held 144 frames a second on a dedicated graphics card.
 
-Never checked: frame rate in a large late-game battle, and determinism in
-Firefox or Safari.
+Checked there on 12 November 2026: all of the checks above except
+`check:browser`, and the C# tests again with overflow checking switched on.
+
+Never checked: frame rate in a large late-game battle; determinism in Firefox
+or Safari; and the C# library inside a game engine, on a Mac, or on any
+processor other than this computer's.
 
 ## The owner's computer
 
 The work has moved here from the cloud workspace.
 
-- Windows 11 with a strong NVIDIA graphics card, Git, and Node.js 26
-  (installed with `winget`). Work runs there in local sessions of the Claude
-  desktop app, so the engine can be run and looked at. No game engine is
-  installed yet.
+- Windows 11 with a strong NVIDIA graphics card, Git, Node.js 26 and the .NET
+  SDK 10 (both installed with `winget`; the owner said yes to the SDK on 11
+  November 2026). Work runs there in local sessions of the Claude desktop
+  app, so the engine can be run and looked at. No game engine is installed
+  yet.
+- A session's PATH can be out of date. If `dotnet` or `node` is not found,
+  they are in `C:Program Filesdotnet` and `C:Program Files
+odejs`.
+  Python is not installed.
 - The project lives in `C:\dev\rts_1`. Keep it, and any engine project,
   outside folders that OneDrive syncs. The project's packages are many small
   files, and Unity copes with a synced folder worse still.
@@ -106,7 +133,8 @@ or timers in game rules.
    it, so the same library serves Unity or Godot. Proof of the port: matches
    recorded from the TypeScript game (settings, command log, checksum on every
    tick) must replay to the same checksums in C#. The TypeScript version stays
-   frozen as the reference while this is done.
+   frozen as the reference while this is done. **Done on the branch
+   `step-9-csharp-port`; waiting for the owner to say merge.**
 2. First picture in the engine: map, camera, the existing models, watching the
    AI play itself.
 3. Playable parity: selection, orders, HUD, minimap, fog, build and research
@@ -118,7 +146,8 @@ or timers in game rules.
 New features wait until step 1 is done so they are written once: walls, gates
 and siege; garrisoning; civilizations; victory conditions in the simulation.
 
-**Cautions for the C# port**
+**Cautions for the C# port** (all four were followed; `csharp/README.md` has
+the fuller list of rules that came out of the work)
 
 - Whole numbers only (`int`, `long`), inside `unchecked`. `Math.imul` is
   32-bit wrapping multiplication; `>>>` is an unsigned shift.
@@ -131,6 +160,7 @@ and siege; garrisoning; civilizations; victory conditions in the simulation.
 
 ## Waiting on the owner
 
+- Whether to merge `step-9-csharp-port` into `main`.
 - A plain yes to Unity 6 before it is installed. The C# port does not depend
   on the answer.
 - Where the art comes from: bought packs or a commissioned artist, and roughly

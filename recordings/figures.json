@@ -1903,7 +1903,7 @@
      "...ggg.............~~.........ss....ggg.",
      "...................~~.........ss........",
      ".TTTTT.............~~.............TTTTT.",
-     ".TTTTT.............~~.............TTTTT.",
+     ".TT.TT.............~~.............TTTTT.",
      ".TTTTT...###.......~~.......###...TTTTT.",
      ".TTTTT...###.......~~.......###...TTTTT.",
      ".TTTTT.............~~.............TTTTT.",
@@ -1923,7 +1923,7 @@
     ]
    },
    "checksum": 3950130968,
-   "stateHash": -225602080,
+   "stateHash": 665207674,
    "starts": [
     425984,
     360448,
@@ -1932,11 +1932,11 @@
     2195456,
     360448
    ],
-   "terrain": 3755626629,
-   "amount": 3183963225,
+   "terrain": 1684962843,
+   "amount": 3832192572,
    "elevation": 2241166963,
-   "passable": 2271430664,
-   "region": 2271430664,
+   "passable": 2070024255,
+   "region": 3515680445,
    "searches": [
     {
      "kind": "path",
@@ -2777,6 +2777,642 @@
      "folded": 4166327902
     }
    ]
+  },
+  {
+   "width": 64,
+   "height": 64,
+   "seed": 110,
+   "map": {
+    "kind": "generated"
+   },
+   "checksum": 1028715910,
+   "stateHash": -913092739,
+   "starts": [
+    819200,
+    819200,
+    3375104,
+    3375104
+   ],
+   "terrain": 136671181,
+   "amount": 958214618,
+   "elevation": 2044932051,
+   "passable": 2281910997,
+   "region": 2281910997,
+   "searches": [
+    {
+     "kind": "path",
+     "start": 1434,
+     "goal": 2326,
+     "targets": [],
+     "found": true,
+     "expansions": 35,
+     "length": 15,
+     "folded": 3720161107
+    },
+    {
+     "kind": "path",
+     "start": 1288,
+     "goal": 2482,
+     "targets": [],
+     "found": true,
+     "expansions": 288,
+     "length": 43,
+     "folded": 1854587432
+    },
+    {
+     "kind": "path",
+     "start": 3391,
+     "goal": 335,
+     "targets": [],
+     "found": true,
+     "expansions": 408,
+     "length": 58,
+     "folded": 1752589651
+    },
+    {
+     "kind": "path",
+     "start": 593,
+     "goal": 605,
+     "targets": [],
+     "found": true,
+     "expansions": 13,
+     "length": 13,
+     "folded": 3544143587
+    },
+    {
+     "kind": "path",
+     "start": 925,
+     "goal": 3707,
+     "targets": [],
+     "found": true,
+     "expansions": 177,
+     "length": 48,
+     "folded": 3940352014
+    },
+    {
+     "kind": "path",
+     "start": 1744,
+     "goal": 3761,
+     "targets": [],
+     "found": true,
+     "expansions": 179,
+     "length": 43,
+     "folded": 2511666745
+    },
+    {
+     "kind": "field",
+     "start": 207,
+     "goal": -1,
+     "targets": [
+      168,
+      2225,
+      2303,
+      3196
+     ],
+     "found": true,
+     "expansions": 3056,
+     "length": 0,
+     "folded": 1708717030
+    },
+    {
+     "kind": "field",
+     "start": 2804,
+     "goal": -1,
+     "targets": [
+      2881,
+      1845,
+      2999,
+      624
+     ],
+     "found": true,
+     "expansions": 3056,
+     "length": 0,
+     "folded": 684569469
+    },
+    {
+     "kind": "field",
+     "start": 2287,
+     "goal": -1,
+     "targets": [],
+     "found": true,
+     "expansions": 3056,
+     "length": 0,
+     "folded": 1475220526
+    }
+   ]
+  },
+  {
+   "width": 72,
+   "height": 56,
+   "seed": 166,
+   "map": {
+    "kind": "generated"
+   },
+   "checksum": 640291945,
+   "stateHash": 366685850,
+   "starts": [
+    950272,
+    753664,
+    3768320,
+    2916352
+   ],
+   "terrain": 3871280812,
+   "amount": 1894583090,
+   "elevation": 3525523180,
+   "passable": 562349975,
+   "region": 562349975,
+   "searches": [
+    {
+     "kind": "path",
+     "start": 3284,
+     "goal": 905,
+     "targets": [],
+     "found": true,
+     "expansions": 560,
+     "length": 44,
+     "folded": 4157973413
+    },
+    {
+     "kind": "path",
+     "start": 656,
+     "goal": 2507,
+     "targets": [],
+     "found": true,
+     "expansions": 522,
+     "length": 52,
+     "folded": 696663945
+    },
+    {
+     "kind": "path",
+     "start": 3062,
+     "goal": 10,
+     "targets": [],
+     "found": true,
+     "expansions": 203,
+     "length": 48,
+     "folded": 3212263057
+    },
+    {
+     "kind": "path",
+     "start": 513,
+     "goal": 457,
+     "targets": [],
+     "found": true,
+     "expansions": 77,
+     "length": 19,
+     "folded": 2778463322
+    },
+    {
+     "kind": "path",
+     "start": 3261,
+     "goal": 945,
+     "targets": [],
+     "found": true,
+     "expansions": 33,
+     "length": 33,
+     "folded": 2941264039
+    },
+    {
+     "kind": "path",
+     "start": 2959,
+     "goal": 3721,
+     "targets": [],
+     "found": true,
+     "expansions": 885,
+     "length": 74,
+     "folded": 737383898
+    },
+    {
+     "kind": "field",
+     "start": 200,
+     "goal": -1,
+     "targets": [
+      872,
+      3313,
+      2746,
+      632
+     ],
+     "found": true,
+     "expansions": 2947,
+     "length": 0,
+     "folded": 1111414654
+    },
+    {
+     "kind": "field",
+     "start": 206,
+     "goal": -1,
+     "targets": [
+      2161,
+      20,
+      1856,
+      4023
+     ],
+     "found": true,
+     "expansions": 2661,
+     "length": 0,
+     "folded": 1853850059
+    },
+    {
+     "kind": "field",
+     "start": 3705,
+     "goal": -1,
+     "targets": [],
+     "found": true,
+     "expansions": 2950,
+     "length": 0,
+     "folded": 3787234720
+    }
+   ]
   }
+ ],
+ "techs": {
+  "table": [
+   {
+    "name": "Open fields",
+    "folded": 435223341
+   },
+   {
+    "name": "Knight service",
+    "folded": 979457361
+   },
+   {
+    "name": "Town charters",
+    "folded": 3677408412
+   },
+   {
+    "name": "Paid retinues",
+    "folded": 1454947653
+   },
+   {
+    "name": "Standing companies",
+    "folded": 4028937704
+   },
+   {
+    "name": "Gunfounding",
+    "folded": 2918350808
+   },
+   {
+    "name": "Wheelbarrow",
+    "folded": 3146727264
+   },
+   {
+    "name": "Heavy plough",
+    "folded": 2781200407
+   },
+   {
+    "name": "Horse collar",
+    "folded": 3357309195
+   },
+   {
+    "name": "Felling axes",
+    "folded": 2638800735
+   },
+   {
+    "name": "Sawmills",
+    "folded": 1865370347
+   },
+   {
+    "name": "Fire-setting",
+    "folded": 95415036
+   },
+   {
+    "name": "Drainage adits",
+    "folded": 3419351912
+   },
+   {
+    "name": "Steeled edges",
+    "folded": 791306569
+   },
+   {
+    "name": "Blast furnace",
+    "folded": 2501478785
+   },
+   {
+    "name": "Mail hauberks",
+    "folded": 1345225765
+   },
+   {
+    "name": "Coat of plates",
+    "folded": 3415615603
+   },
+   {
+    "name": "Bodkin points",
+    "folded": 560582935
+   },
+   {
+    "name": "Longbows",
+    "folded": 2328991877
+   },
+   {
+    "name": "Long spears",
+    "folded": 15847674
+   },
+   {
+    "name": "Pikes",
+    "folded": 511310435
+   },
+   {
+    "name": "Couched lance",
+    "folded": 450397324
+   },
+   {
+    "name": "Arrow loops",
+    "folded": 2957047989
+   }
+  ],
+  "cases": [
+   {
+    "researched": [],
+    "folded": 1046711523
+   },
+   {
+    "researched": [
+     0
+    ],
+    "folded": 980683363
+   },
+   {
+    "researched": [
+     1
+    ],
+    "folded": 3749255008
+   },
+   {
+    "researched": [
+     2
+    ],
+    "folded": 3702141007
+   },
+   {
+    "researched": [
+     3
+    ],
+    "folded": 3794930064
+   },
+   {
+    "researched": [
+     4
+    ],
+    "folded": 3833833540
+   },
+   {
+    "researched": [
+     5
+    ],
+    "folded": 933658420
+   },
+   {
+    "researched": [
+     6
+    ],
+    "folded": 2197333369
+   },
+   {
+    "researched": [
+     7
+    ],
+    "folded": 1069821379
+   },
+   {
+    "researched": [
+     8
+    ],
+    "folded": 1069821379
+   },
+   {
+    "researched": [
+     9
+    ],
+    "folded": 2677694852
+   },
+   {
+    "researched": [
+     10
+    ],
+    "folded": 752814146
+   },
+   {
+    "researched": [
+     11
+    ],
+    "folded": 4152835216
+   },
+   {
+    "researched": [
+     12
+    ],
+    "folded": 1367209184
+   },
+   {
+    "researched": [
+     13
+    ],
+    "folded": 1943503294
+   },
+   {
+    "researched": [
+     14
+    ],
+    "folded": 3353491546
+   },
+   {
+    "researched": [
+     15
+    ],
+    "folded": 2625768342
+   },
+   {
+    "researched": [
+     16
+    ],
+    "folded": 1137630021
+   },
+   {
+    "researched": [
+     17
+    ],
+    "folded": 3547974181
+   },
+   {
+    "researched": [
+     18
+    ],
+    "folded": 3319605097
+   },
+   {
+    "researched": [
+     19
+    ],
+    "folded": 2266220665
+   },
+   {
+    "researched": [
+     20
+    ],
+    "folded": 3204764783
+   },
+   {
+    "researched": [
+     21
+    ],
+    "folded": 286220722
+   },
+   {
+    "researched": [
+     22
+    ],
+    "folded": 376195291
+   },
+   {
+    "researched": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22
+    ],
+    "folded": 810488076
+   }
+  ]
+ },
+ "timings": [
+  4161091032,
+  1409094374,
+  1305673455,
+  1313919684,
+  2343077194,
+  7790187,
+  3273593378,
+  2445396322,
+  3671533762,
+  954901863,
+  141927554,
+  2169512108,
+  2742963159,
+  67001578,
+  4286616656,
+  3213141151,
+  2904141302,
+  1844671257,
+  2387707879,
+  2315681910,
+  3164425117,
+  2699547520,
+  878211832,
+  2372063673,
+  758808570,
+  3999534458,
+  3608671006,
+  3980994156,
+  875669740,
+  2522295298,
+  847140805,
+  1942031671,
+  4280334005,
+  1938956122,
+  1542047124,
+  1027193745,
+  4239352186,
+  1103702514,
+  3520713693,
+  280724432,
+  194746799,
+  4016432524,
+  242453020,
+  473230407,
+  585893048,
+  1011116331,
+  4042069068,
+  4275667225,
+  2689027187,
+  2349247464,
+  2325962418,
+  3037278749,
+  2601142941,
+  1086173834,
+  1539558852,
+  3181871483,
+  1683838158,
+  3168996662,
+  2493923805,
+  1375393740,
+  3009062702,
+  2847163017,
+  292141856,
+  211957806,
+  2838725300,
+  1492927761,
+  1468239337,
+  1498486293,
+  3439623165,
+  2309848610,
+  3368819214,
+  2741900148,
+  1688987702,
+  3732016204,
+  2010802293,
+  1056221016,
+  2464605084,
+  3133505780,
+  2057313114,
+  2569321722,
+  575398670,
+  2603470058,
+  2293750406,
+  331288286,
+  2162942016,
+  425187344,
+  3699437803,
+  3101175457,
+  1217336240,
+  1494668395,
+  4187286818,
+  3680636641,
+  3101544009,
+  766970423,
+  2839005686,
+  1828864910,
+  2643215312,
+  3419913053,
+  3905968262,
+  247822087,
+  2447707676,
+  2160382126,
+  1627899941,
+  2554737778,
+  1662378176,
+  1652867172,
+  2677090299,
+  3990665152,
+  3319253204,
+  2095198487,
+  817494720,
+  3615870092,
+  936411877,
+  3740183916,
+  3942302140,
+  3748181731,
+  1648269362,
+  1946345471,
+  3758451678,
+  446207043
  ]
 }
