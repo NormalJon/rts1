@@ -40,10 +40,16 @@ const SECONDS_PER_UNIT: readonly (readonly [number, number])[] = [
 /** A farm is steadier than a berry bush but slower: seconds of work per unit of food, as a fraction. */
 const SECONDS_PER_UNIT_FARMED: readonly [number, number] = [8, 5];
 
-/** Ticks of work to gather one unit from a tile of a given terrain. */
-export function ticksPerUnit(terrain: number, tickRate: number): number {
+/**
+ * Ticks of work to gather one unit from a tile of a given terrain.
+ *
+ * @param faster  How much quicker the gatherer's side has learned to work
+ *   this terrain, in percent: 30 means thirteen units in the time ten took.
+ */
+export function ticksPerUnit(terrain: number, tickRate: number, faster = 0): number {
   const [seconds, per] = terrain === Terrain.Field ? SECONDS_PER_UNIT_FARMED : SECONDS_PER_UNIT[resourceOfTerrain(terrain)]!;
-  return Math.max(1, idiv(tickRate * seconds * 2 + per, per * 2));
+  const scale = per * (100 + faster);
+  return Math.max(1, idiv(tickRate * seconds * 200 + scale, scale * 2));
 }
 
 /** What a thing is, for the purposes of who hits it hardest. One bit each. */
@@ -55,7 +61,16 @@ export const Tag = {
   Spear: 8,
   Villager: 16,
   Building: 32,
+  /** In mail or plate: men-at-arms and knights. Bolts are made for them. */
+  Heavy: 64,
+  Gunpowder: 128,
 } as const;
+
+/** The four ages a match passes through, each reached by choosing a reform (see tech.ts). */
+export const Age = { EarlyMedieval: 0, HighMedieval: 1, LateMedieval: 2, EarlyModern: 3 } as const;
+export const AGE_NAMES = ['Early Medieval', 'High Medieval', 'Late Medieval', 'Early Modern'] as const;
+/** The years each age stands for. */
+export const AGE_YEARS = ['800–1000', '1000–1250', '1250–1450', '1450–1600'] as const;
 
 export interface EntityType {
   readonly name: string;
@@ -64,6 +79,8 @@ export interface EntityType {
   readonly cost: readonly [number, number, number, number];
   /** Seconds to train a unit, or for one villager to put up a building. */
   readonly seconds: number;
+  /** The age a player must have reached to train or build it. */
+  readonly age: number;
 
   /** How much damage it can take. */
   readonly hp: number;
@@ -153,6 +170,7 @@ function unit(
     builds?: boolean;
     braces?: boolean;
     aggressive?: boolean;
+    age?: number;
   },
   weapon: Weapon,
 ): EntityType {
@@ -161,6 +179,7 @@ function unit(
     building: false,
     cost,
     seconds,
+    age: body.age ?? Age.EarlyMedieval,
     hp: body.hp,
     sight: body.sight,
     meleeArmor: body.meleeArmor ?? 0,
@@ -202,6 +221,7 @@ function building(
     buildable?: boolean;
     sight?: number;
     farm?: boolean;
+    age?: number;
   } = {},
   weapon: Weapon = UNARMED,
 ): EntityType {
@@ -210,6 +230,7 @@ function building(
     building: true,
     cost,
     seconds,
+    age: extras.age ?? Age.EarlyMedieval,
     hp,
     sight: extras.sight ?? 6,
     // Timber and stone shrug off blades, and arrows all but bounce off.
@@ -254,6 +275,11 @@ export const Kind = {
   Stable: 11,
   Watchtower: 12,
   Farm: 13,
+  ManAtArms: 14,
+  Knight: 15,
+  Crossbowman: 16,
+  Handgunner: 17,
+  Blacksmith: 18,
 } as const;
 
 /**
@@ -264,6 +290,14 @@ export const Kind = {
  *   spearman   80    8  1.75s   0 / 0  +16 against cavalry; braces against a charge
  *   archer     60    5  1.5s    0 / 0  +5 against spearmen; shoots 5 tiles
  *   horseman  120    9  1.75s   0 / 2  +9 against archers; +10 on a charge; half as fast again
+ *
+ * Later ages add soldiers in armour, who cost gold and shrug off the cheap
+ * troops' blows, and the weapons made to deal with them:
+ *
+ *   man-at-arms  130   11  1.75s   3 / 3  High Medieval; no weakness to arrows
+ *   knight       190   14  1.75s   3 / 3  High Medieval; +14 on a charge; still fears spears
+ *   crossbowman   70   10  2.25s   0 / 0  Late Medieval; +10 against armour; shoots 5 tiles
+ *   handgunner    70   32  3.5s    0 / 0  Early Modern; +6 against armour; shoots 4 tiles, slowly
  */
 const ARROWS_FROM_A_BUILDING: Weapon = {
   damage: 8,
@@ -311,7 +345,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
   building('mill', [0, 50, 0, 0], 25, 3, 500, { accepts: 1 << Resource.Food }),
   building('lumber camp', [0, 50, 0, 0], 25, 3, 500, { accepts: 1 << Resource.Wood }),
   building('mining camp', [0, 50, 0, 0], 25, 3, 500, { accepts: (1 << Resource.Stone) | (1 << Resource.Gold) }),
-  building('barracks', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Spearman] }),
+  building('barracks', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Spearman, Kind.ManAtArms] }),
   unit(
     'archer',
     [30, 50, 0, 0],
@@ -340,10 +374,92 @@ export const ENTITY_TYPES: readonly EntityType[] = [
       charge: 10,
     },
   ),
-  building('archery range', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Archer] }),
-  building('stable', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Horseman] }),
+  building('archery range', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Archer, Kind.Crossbowman, Kind.Handgunner] }),
+  building('stable', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Horseman, Kind.Knight] }),
   building('watchtower', [0, 100, 50, 0], 45, 3, 700, { sight: 13 }, { ...ARROWS_FROM_A_BUILDING, range: 7 * ONE }),
   building('farm', [0, 75, 0, 0], 20, 3, 300, { farm: true, sight: 3 }),
+  unit(
+    'man-at-arms',
+    [100, 0, 0, 40],
+    22,
+    {
+      hp: 130,
+      sight: 8,
+      speed: fromRatio(7, 5),
+      radius: fromRatio(1, 4),
+      tags: Tag.Infantry | Tag.Heavy,
+      meleeArmor: 3,
+      rangedArmor: 3,
+      age: Age.HighMedieval,
+    },
+    { damage: 11, range: fromRatio(3, 10), windup: fromRatio(1, 2), cycle: fromRatio(7, 4) },
+  ),
+  unit(
+    'knight',
+    [140, 0, 0, 100],
+    30,
+    {
+      hp: 190,
+      sight: 9,
+      speed: fromRatio(11, 5),
+      radius: fromRatio(7, 20),
+      tags: Tag.Cavalry | Tag.Heavy,
+      meleeArmor: 3,
+      rangedArmor: 3,
+      age: Age.HighMedieval,
+    },
+    {
+      damage: 14,
+      range: fromRatio(2, 5),
+      windup: fromRatio(2, 5),
+      cycle: fromRatio(7, 4),
+      bonuses: [[Tag.Ranged, 6]],
+      charge: 14,
+    },
+  ),
+  unit(
+    'crossbowman',
+    [60, 0, 0, 45],
+    20,
+    {
+      hp: 70,
+      sight: 9,
+      speed: fromRatio(3, 2),
+      radius: fromRatio(1, 4),
+      tags: Tag.Infantry | Tag.Ranged,
+      age: Age.LateMedieval,
+    },
+    {
+      damage: 10,
+      ranged: true,
+      range: 5 * ONE,
+      windup: fromRatio(3, 5),
+      cycle: fromRatio(9, 4),
+      bonuses: [[Tag.Heavy, 10]],
+    },
+  ),
+  unit(
+    'handgunner',
+    [70, 0, 0, 60],
+    24,
+    {
+      hp: 70,
+      sight: 8,
+      speed: fromRatio(3, 2),
+      radius: fromRatio(1, 4),
+      tags: Tag.Infantry | Tag.Ranged | Tag.Gunpowder,
+      age: Age.EarlyModern,
+    },
+    {
+      damage: 32,
+      ranged: true,
+      range: 4 * ONE,
+      windup: fromRatio(4, 5),
+      cycle: fromRatio(7, 2),
+      bonuses: [[Tag.Heavy, 6]],
+    },
+  ),
+  building('blacksmith', [0, 150, 0, 0], 35, 3, 800, { age: Age.HighMedieval }),
 ];
 
 /** How fast an arrow flies, in tiles per second. */
@@ -376,9 +492,9 @@ export const POPULATION_LIMIT = 200;
 /** Units a building can have waiting to be trained. */
 export const TRAIN_QUEUE_LENGTH = 8;
 
-/** Ticks to train a unit. */
-export function trainingTicks(entityType: number, tickRate: number): number {
-  return Math.max(1, ENTITY_TYPES[entityType]!.seconds * tickRate);
+/** Ticks to train a unit, given its type as its owner's technology has made it. */
+export function trainingTicks(type: EntityType, tickRate: number): number {
+  return Math.max(1, type.seconds * tickRate);
 }
 
 /**

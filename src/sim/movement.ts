@@ -12,7 +12,7 @@
  *      checks whether it has arrived or is getting nowhere.
  */
 
-import { CHARGE_RUN_SECONDS, ENTITY_TYPES, ticksOf } from './entityTypes';
+import { CHARGE_RUN_SECONDS, ticksOf } from './entityTypes';
 import { fromRatio, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
 import { DIR_X, DIR_Y } from './map';
 import { chooseRoute, finishOrder, requestPath } from './routing';
@@ -82,7 +82,7 @@ export function movementSystem(world: World): void {
     const fromX = posX[slot]!;
     const fromY = posY[slot]!;
     settleOnGround(world, slot, nextX[slot]! + pushX[slot]!, nextY[slot]! + pushY[slot]!);
-    if (ENTITY_TYPES[world.entityType[slot]!]!.charge > 0) {
+    if (world.typeOf(slot).charge > 0) {
       // A rider gathers way while it keeps moving and loses it standing about,
       // though not in the moment between pulling up and striking.
       const dx = posX[slot]! - fromX;

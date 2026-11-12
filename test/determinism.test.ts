@@ -10,7 +10,8 @@ import { Rng } from '../src/sim/rng';
 import { brokenInvariant, playRandomMatch } from './helpers';
 
 const TICKS = 2100; // 70 seconds of play at 30 ticks per second
-const config = defaultConfig({ seed: 20261111, playerCount: 2, map: { kind: 'generated' }, start: 'standard' });
+// The match starts in the second age, so that soldiers and buildings of two ages are in play.
+const config = defaultConfig({ seed: 20261111, playerCount: 2, map: { kind: 'generated' }, start: 'standard', startAge: 1 });
 // The same match with pathfinding starved, so searches run across many ticks.
 const starved = { ...config, pathBudget: 150 };
 
@@ -36,6 +37,8 @@ describe('determinism', () => {
     let spentOnUnits = 0;
     let unexplored = 0;
     let explored = 0;
+    let researching = 0;
+    let researched = 0;
     const kindsUsed = new Set<string>();
     let queuedMoves = false;
     for (const scriptSeed of [77, 78, 79]) {
@@ -51,6 +54,7 @@ describe('determinism', () => {
           if (world.mobile[slot] === 0) {
             buildings++;
             mostQueued = Math.max(mostQueued, world.trainLength[slot]!);
+            if (world.trainLength[slot]! > 0 && world.trainQueue[slot * 8]! >= 128) researching++;
           }
         }
         mostBuildings = Math.max(mostBuildings, buildings);
@@ -66,6 +70,7 @@ describe('determinism', () => {
       expect(world.livingEntities().length).toBeGreaterThan(20);
       for (let slot = 0; slot < world.highWater; slot++) deaths += world.generation[slot]!;
       spentOnUnits += world.spent[0]! + world.spent[4]!; // food
+      for (let i = 0; i < world.researched.length; i++) researched += world.researched[i]!;
       for (const side of world.explored) {
         for (let tile = 0; tile < side.length; tile++) {
           if (side[tile] === 1) explored++;
@@ -76,7 +81,7 @@ describe('determinism', () => {
     expect(queuedMoves).toBe(true);
     const kinds = [
       'gather', 'deliver', 'build', 'construct', 'train', 'cancelTrain', 'rally', 'demolish',
-      'attack', 'attackMove', 'patrol', 'hold', 'stop',
+      'attack', 'attackMove', 'patrol', 'hold', 'stop', 'research',
     ];
     for (const kind of kinds) expect(kindsUsed.has(kind), kind).toBe(true);
     // Villagers gathered and built, sites were founded, units were queued and paid for.
@@ -90,6 +95,9 @@ describe('determinism', () => {
     expect(striking).toBeGreaterThan(3000);
     expect(arrows).toBeGreaterThan(600);
     expect(deaths).toBeGreaterThan(20);
+    // Buildings spent time on research, and some of it was finished.
+    expect(researching).toBeGreaterThan(500);
+    expect(researched).toBeGreaterThan(0);
     // Each side found out a good deal of the map, and neither found out all of it.
     expect(explored).toBeGreaterThan(unexplored);
     expect(unexplored).toBeGreaterThan(2000);
@@ -196,7 +204,7 @@ describe('determinism', () => {
     // deliberate, update the value here and in scripts/browser-check.mjs; old
     // replays will no longer play back.
     const { hashes } = playRandomMatch(config, 77, TICKS);
-    expect(hashHex(hashes[TICKS - 1]!)).toBe('8c258efb');
+    expect(hashHex(hashes[TICKS - 1]!)).toBe('8faaf6a6');
   });
 });
 

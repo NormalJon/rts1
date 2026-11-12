@@ -21,7 +21,7 @@
  * what has been explored and counts the rest again on loading.
  */
 
-import { ENTITY_TYPES, SITE_SIGHT } from './entityTypes';
+import { SITE_SIGHT } from './entityTypes';
 import { idiv, isqrt } from './fixed';
 import type { World } from './world';
 
@@ -78,7 +78,7 @@ function look(world: World, view: number, tile: number, radius: number, add: boo
 
 /** How far an entity sees just now. A building site sees little until it is finished. */
 function sightOf(world: World, slot: number): number {
-  const type = ENTITY_TYPES[world.entityType[slot]!]!;
+  const type = world.typeOf(slot);
   if (type.building && world.built[slot] === 0) return Math.min(type.sight, SITE_SIGHT);
   return Math.min(type.sight, MAX_SIGHT);
 }
@@ -195,7 +195,7 @@ export function canSee(world: World, player: number, slot: number): boolean {
   const seen = world.seen[world.view[player]!]!;
   if (world.mobile[slot] === 1) return seen[map.tileAt(world.posX[slot]!, world.posY[slot]!)]! > 0;
   // Its corners, the middles of its sides, and its centre.
-  const half = ENTITY_TYPES[world.entityType[slot]!]!.footprint >> 1;
+  const half = world.typeOf(slot).footprint >> 1;
   const cx = world.posX[slot]! >> 16;
   const cy = world.posY[slot]! >> 16;
   for (let oy = -half; oy <= half; oy += Math.max(1, half)) {

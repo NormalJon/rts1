@@ -20,7 +20,6 @@
 
 import {
   buildPointsNeeded,
-  ENTITY_TYPES,
   LONE_BUILDER_POINTS,
   RESOURCE_COUNT,
   resourceOfTerrain,
@@ -31,6 +30,7 @@ import {
 import { fromRatio, HALF, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
 import { DIR_X, DIR_Y, Terrain } from './map';
 import { beginOrder } from './routing';
+import { TERRAINS } from './tech';
 import { entityIndex, Job, MoveState, NO_ENTITY, type EntityId, type World } from './world';
 
 /** How close a villager must stand to a tile or building to work on it or hand in. */
@@ -68,7 +68,7 @@ export function assignGather(world: World, slot: number, tile: number, taken?: S
   world.clearJob(slot);
   world.jobTile[slot] = tile;
   world.jobTerrain[slot] = terrain;
-  const capacity = ENTITY_TYPES[world.entityType[slot]!]!.carries;
+  const capacity = world.typeOf(slot).carries;
   const loaded = world.carry[slot]!;
   // A full load, or a load of something else, is handed in first.
   if (loaded >= capacity || (loaded > 0 && world.carryKind[slot] !== resource)) startDelivery(world, slot);
@@ -105,7 +105,7 @@ export function assignDelivery(world: World, slot: number, building: EntityId): 
  * buildings or needs no work.
  */
 export function assignConstruction(world: World, slot: number, site: EntityId): boolean {
-  if (!needsWork(world, site, world.owner[slot]!) || !ENTITY_TYPES[world.entityType[slot]!]!.builds) return false;
+  if (!needsWork(world, site, world.owner[slot]!) || !world.typeOf(slot).builds) return false;
   world.clearOrders(slot);
   world.clearJob(slot);
   if (!walkToEdgeOf(world, slot, entityIndex(site), true)) return false;
@@ -182,14 +182,15 @@ export function economySystem(world: World): void {
     const terrain = map.terrain[tile]!;
     const resource = resourceOfTerrain(terrain);
     world.jobTimer[slot] = world.jobTimer[slot]! + 1;
-    if (world.jobTimer[slot]! < ticksPerUnit(terrain, world.config.tickRate)) continue;
+    const faster = world.gatherBonus[world.owner[slot]! * TERRAINS + terrain]!;
+    if (world.jobTimer[slot]! < ticksPerUnit(terrain, world.config.tickRate, faster)) continue;
     world.jobTimer[slot] = 0;
     // A farm's crop is grown, not taken: the field holds as much afterwards as before.
     if (terrain === Terrain.Field) world.grown[resource] = world.grown[resource]! + 1;
     else map.harvest(tile);
     world.carryKind[slot] = resource;
     world.carry[slot] = world.carry[slot]! + 1;
-    if (world.carry[slot]! >= ENTITY_TYPES[world.entityType[slot]!]!.carries) startDelivery(world, slot);
+    if (world.carry[slot]! >= world.typeOf(slot).carries) startDelivery(world, slot);
   }
 }
 
@@ -234,7 +235,7 @@ function withinReach(world: World, slot: number, left: number, top: number, size
 
 /** Whether a unit is within reach of a building. */
 function withinReachOf(world: World, slot: number, building: number): boolean {
-  const footprint = ENTITY_TYPES[world.entityType[building]!]!.footprint;
+  const footprint = world.typeOf(building).footprint;
   const half = footprint >> 1;
   return withinReach(world, slot, (world.posX[building]! >> 16) - half, (world.posY[building]! >> 16) - half, footprint);
 }
@@ -262,7 +263,7 @@ function walkToEdgeOf(world: World, slot: number, building: number, spreadOut = 
     }
   }
   const region = map.region[map.tileAt(px, py)]!;
-  const reach = (ENTITY_TYPES[world.entityType[building]!]!.footprint >> 1) + 1;
+  const reach = (world.typeOf(building).footprint >> 1) + 1;
   const cx = world.posX[building]! >> 16;
   const cy = world.posY[building]! >> 16;
   let bestX = 0;
@@ -386,7 +387,7 @@ function takesDeliveryOf(world: World, id: EntityId, owner: number, resource: nu
   return (
     world.owner[slot] === owner &&
     world.built[slot] === 1 &&
-    (ENTITY_TYPES[world.entityType[slot]!]!.accepts & (1 << resource)) !== 0
+    (world.typeOf(slot).accepts & (1 << resource)) !== 0
   );
 }
 
@@ -394,7 +395,7 @@ function takesDeliveryOf(world: World, id: EntityId, owner: number, resource: nu
 export function acceptsDeliveries(world: World, id: EntityId, owner: number): boolean {
   if (!world.isAlive(id)) return false;
   const slot = entityIndex(id);
-  return world.owner[slot] === owner && world.built[slot] === 1 && ENTITY_TYPES[world.entityType[slot]!]!.accepts !== 0;
+  return world.owner[slot] === owner && world.built[slot] === 1 && world.typeOf(slot).accepts !== 0;
 }
 
 /**
@@ -440,7 +441,7 @@ function needsWork(world: World, id: EntityId, owner: number): boolean {
   if (!world.isAlive(id)) return false;
   const slot = entityIndex(id);
   if (world.mobile[slot] === 1 || world.owner[slot] !== owner) return false;
-  return world.built[slot] === 0 || world.hp[slot]! < ENTITY_TYPES[world.entityType[slot]!]!.hp;
+  return world.built[slot] === 0 || world.hp[slot]! < world.typeOf(slot).hp;
 }
 
 /** One tick of a villager's building job. */
@@ -474,7 +475,7 @@ function build(world: World, slot: number): void {
     return;
   }
   const typeId = world.entityType[at]!;
-  const type = ENTITY_TYPES[typeId]!;
+  const type = world.typeOf(at);
   if (world.built[at] === 1) {
     // Mending is slow work: one villager would take six times as long to
     // restore a building from nothing as to build it, which is about what
@@ -522,7 +523,7 @@ function afterBuilding(world: World, slot: number, finished: EntityId): void {
     const cx = world.posX[at]! >> 16;
     const cy = world.posY[at]! >> 16;
     // Whoever finishes a farm starts farming it, if nobody has beaten them to it.
-    if (ENTITY_TYPES[world.entityType[at]!]!.farm && ENTITY_TYPES[world.entityType[slot]!]!.carries > 0) {
+    if (world.typeOf(at).farm && world.typeOf(slot).carries > 0) {
       const tile = cy * map.width + cx;
       if (freeSpot(world, slot, tile, region, spotsTakenExcept(world, [slot])) !== -1 && assignGather(world, slot, tile)) return;
     }
@@ -539,7 +540,7 @@ function afterBuilding(world: World, slot: number, finished: EntityId): void {
         bestDistance = distance;
       }
     }
-    if (best !== -1 && ENTITY_TYPES[world.entityType[slot]!]!.carries > 0 && assignGather(world, slot, best)) return;
+    if (best !== -1 && world.typeOf(slot).carries > 0 && assignGather(world, slot, best)) return;
   }
   let next = -1;
   let nearest = NEXT_SITE_RADIUS * ONE;

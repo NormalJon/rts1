@@ -29,7 +29,7 @@
  * soldiers who strike at the same moment both land their blows.
  */
 
-import { chargeReadyTicks, ENTITY_TYPES, HIGH_GROUND, SHOT_SPEED, ticksOf, type EntityType } from './entityTypes';
+import { chargeReadyTicks, HIGH_GROUND, SHOT_SPEED, ticksOf, type EntityType } from './entityTypes';
 import { HALF, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
 import { buildNeighbourGrid, CELL_SHIFT } from './movement';
 import { beginOrder, startNextOrder } from './routing';
@@ -72,7 +72,7 @@ export function combatSystem(world: World): void {
   const aimEvery = Math.max(1, idiv(tickRate, 5));
   for (let slot = 0; slot < count; slot++) {
     if (world.alive[slot] === 0) continue;
-    const type = ENTITY_TYPES[world.entityType[slot]!]!;
+    const type = world.typeOf(slot);
     if (type.damage === 0) continue;
     if (world.cooldown[slot]! > 0) world.cooldown[slot] = world.cooldown[slot]! - 1;
     if (world.mobile[slot] === 1) fight(world, slot, type, lookEvery, aimEvery);
@@ -341,7 +341,7 @@ function findPlaceBeside(world: World, slot: number, building: number): boolean 
   const px = world.posX[slot]!;
   const py = world.posY[slot]!;
   const region = map.region[map.tileAt(px, py)]!;
-  const footprint = ENTITY_TYPES[world.entityType[building]!]!.footprint;
+  const footprint = world.typeOf(building).footprint;
   // The building's walls, pushed out by the room the unit needs to stand clear of them.
   const clear = footprint * HALF + world.radius[slot]! + AT_THE_WALL;
   const left = world.posX[building]! - clear;
@@ -404,7 +404,7 @@ function strike(world: World, slot: number, type: EntityType): void {
   let extra = 0;
   if (type.charge > 0 && world.momentum[slot]! >= chargeReadyTicks(tickRate)) {
     world.momentum[slot] = 0;
-    const victim = ENTITY_TYPES[world.entityType[at]!]!;
+    const victim = world.typeOf(at);
     if (victim.braces && world.mobile[at] === 1 && world.moveState[at] === MoveState.Idle) {
       // Rode onto levelled spears: the charge is wasted and the rider pays for it.
       hurt(world, slot, damageOf(world, at, slot, 0), target);
@@ -419,8 +419,8 @@ function strike(world: World, slot: number, type: EntityType): void {
 
 /** What one hit from an attacker does to a victim. */
 export function damageOf(world: World, attacker: number, victim: number, extra: number): number {
-  const weapon = ENTITY_TYPES[world.entityType[attacker]!]!;
-  const body = ENTITY_TYPES[world.entityType[victim]!]!;
+  const weapon = world.typeOf(attacker);
+  const body = world.typeOf(victim);
   let damage = weapon.damage + extra;
   for (const [tags, bonus] of weapon.bonuses) {
     if ((body.tags & tags) !== 0) damage += bonus;
@@ -478,7 +478,7 @@ function hurt(world: World, victim: number, damage: number, attacker: EntityId):
   const { map, cellStart, cellItems, posX, posY } = world;
   const px = posX[victim]!;
   const py = posY[victim]!;
-  const span = HEARING + ENTITY_TYPES[world.entityType[victim]!]!.footprint * HALF;
+  const span = HEARING + world.typeOf(victim).footprint * HALF;
   const columns = (map.width + 1) >> 1;
   const rows = (map.height + 1) >> 1;
   const x0 = Math.max(0, (px - span) >> CELL_SHIFT);
@@ -503,7 +503,7 @@ function hurt(world: World, victim: number, damage: number, attacker: EntityId):
 
 /** Sets a soldier with nothing better to do on an enemy who has just hit it or someone near it. */
 function respond(world: World, slot: number, from: number, attacker: EntityId): void {
-  const type = ENTITY_TYPES[world.entityType[slot]!]!;
+  const type = world.typeOf(slot);
   if (!type.aggressive) return;
   const kind = world.orderKind[slot]!;
   if (kind !== OrderKind.None && kind !== OrderKind.AttackMove && kind !== OrderKind.Patrol) return;
@@ -587,7 +587,7 @@ function distanceTo(world: World, x: Fixed, y: Fixed, at: number): Fixed {
     const distance = length(dx, dy) - world.radius[at]!;
     return distance > 0 ? distance : 0;
   }
-  const half = ENTITY_TYPES[world.entityType[at]!]!.footprint * HALF;
+  const half = world.typeOf(at).footprint * HALF;
   dx = dx > half ? dx - half : 0;
   dy = dy > half ? dy - half : 0;
   return length(dx, dy);

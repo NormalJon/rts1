@@ -12,6 +12,7 @@ import { ENTITY_TYPES, resourceOfTerrain } from './entityTypes';
 import { clamp, fromRatio, HALF, idiv, isqrt, length, mul, mulDiv, ONE, type Fixed } from './fixed';
 import { cancelTraining, queueTraining } from './production';
 import { beginOrder } from './routing';
+import { queueResearch } from './tech';
 import { canSee, hasExplored } from './vision';
 import { entityIndex, MoveState, NO_ENTITY, OrderKind, ORDER_QUEUE_LENGTH, type World } from './world';
 
@@ -78,6 +79,9 @@ export function applyCommand(world: World, entry: ScheduledCommand): void {
     case 'train':
       queueTraining(world, player, command.building, command.unitType | 0);
       break;
+    case 'research':
+      queueResearch(world, player, command.building, command.tech);
+      break;
     case 'cancelTrain':
       cancelTraining(world, player, command.building, command.index);
       break;
@@ -118,7 +122,7 @@ function applyAttack(world: World, player: number, command: Extract<Command, { k
       : canSee(world, player, at) || hasExplored(world, player, world.map.tileAt(world.posX[at]!, world.posY[at]!));
   if (!known) return;
   for (const slot of ownedSlots(world, player, command.units)) {
-    if (ENTITY_TYPES[world.entityType[slot]!]!.damage === 0) continue;
+    if (world.typeOf(slot).damage === 0) continue;
     world.clearOrders(slot);
     world.clearJob(slot);
     world.orderKind[slot] = OrderKind.AttackTarget;
@@ -158,7 +162,7 @@ function applyGather(world: World, player: number, command: Extract<Command, { k
   // Everyone in the order gives up their old place; they share out the free ones between them.
   const taken = spotsTakenExcept(world, slots);
   for (const slot of slots) {
-    const gathers = ENTITY_TYPES[world.entityType[slot]!]!.carries > 0;
+    const gathers = world.typeOf(slot).carries > 0;
     if (!gathers || !assignGather(world, slot, tile, taken)) walkers.push(world.idAt(slot));
   }
   if (walkers.length > 0) walk(world, player, walkers, map.centreX(tile), map.centreY(tile));

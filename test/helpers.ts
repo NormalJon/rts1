@@ -4,6 +4,7 @@ import { fromInt, length } from '../src/sim/fixed';
 import { Terrain } from '../src/sim/map';
 import { hashWorld } from '../src/sim/hash';
 import { Rng } from '../src/sim/rng';
+import { TECHS } from '../src/sim/tech';
 import { ORDER_QUEUE_LENGTH, SHOT_FIELDS, type SimConfig, type World } from '../src/sim/world';
 import { LocalSession } from '../src/session/localSession';
 
@@ -190,6 +191,14 @@ export function playRandomMatch(
       }
       if (script.chance(1, 500)) {
         session.issue(player, { kind: 'cancelTrain', building: randomBuilding(), index: script.nextInt(3) });
+      }
+      if (script.chance(1, 70)) {
+        // Research: usually something that building could research, sometimes nonsense.
+        const building = randomBuilding();
+        const kind = world.isAlive(building) ? world.entityType[building & 0xfffff]! : -1;
+        const fitting = TECHS.map((tech, id) => (tech.at === kind ? id : -1)).filter((id) => id >= 0);
+        const tech = fitting.length > 0 && script.chance(4, 5) ? fitting[script.nextInt(fitting.length)]! : script.nextInt(TECHS.length + 3) - 1;
+        session.issue(player, { kind: 'research', building, tech });
       }
       if (script.chance(1, 300)) {
         session.issue(player, { kind: 'rally', buildings: [randomBuilding()], x: randomX(), y: randomY() });

@@ -13,7 +13,8 @@ import { Terrain, type GameMap } from './map';
 import { buildMap, type MapSpec } from './mapgen';
 import { Rng } from './rng';
 import { SearchScratch, type Search } from './search';
-import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, siteHp, TRAIN_QUEUE_LENGTH } from './entityTypes';
+import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, siteHp, TRAIN_QUEUE_LENGTH, type EntityType } from './entityTypes';
+import { rebuildTypes, TECHS, TERRAINS } from './tech';
 import { perSecondToPerTick } from './units';
 import { exploreEverything, lookAround, stopLooking } from './vision';
 
@@ -36,6 +37,8 @@ export interface SimConfig {
    * everything, always.
    */
   readonly mapState: 'concealed' | 'explored' | 'revealed';
+  /** The age every player begins in: 0 for Early Medieval, the usual game, up to 3 for Early Modern. */
+  readonly startAge: number;
   /** Map size in tiles. */
   readonly mapWidth: number;
   readonly mapHeight: number;
@@ -62,6 +65,7 @@ export function defaultConfig(overrides: Partial<SimConfig> = {}): SimConfig {
     playerCount: 2,
     teams: [],
     mapState: 'concealed',
+    startAge: 0,
     mapWidth: 64,
     mapHeight: 64,
     map: { kind: 'flat' },
@@ -319,6 +323,18 @@ export class World {
   /** Which side each player is on. */
   readonly team: Uint8Array;
 
+  /** The age each player has reached, and what each has researched: playerCount x the number of technologies. */
+  readonly age: Uint8Array;
+  readonly researched: Uint8Array;
+  /**
+   * Each player's units and buildings as their research has made them:
+   * types[player][kind]. Worked out from `researched`, so not saved. Anything
+   * that depends on whose a thing is reads its figures from here.
+   */
+  readonly types: EntityType[][] = [];
+  /** How much faster each player gathers from each terrain, in percent: playerCount x TERRAINS. */
+  readonly gatherBonus: Int32Array;
+
   /**
    * What each side sees. Allies see as one, so this is kept per side, not per
    * player: `view[player]` says which. For each side, `seen` counts how many
@@ -462,6 +478,13 @@ export class World {
       this.team[player] = side === undefined ? 128 + player : side & 127;
     }
     this.shots = new Int32Array(64 * SHOT_FIELDS);
+    if (!Number.isInteger(config.startAge) || config.startAge < 0 || config.startAge > 3) {
+      throw new RangeError('startAge must be 0, 1, 2 or 3');
+    }
+    this.age = new Uint8Array(config.playerCount).fill(config.startAge);
+    this.researched = new Uint8Array(config.playerCount * TECHS.length);
+    this.gatherBonus = new Int32Array(config.playerCount * TERRAINS);
+    for (let player = 0; player < config.playerCount; player++) rebuildTypes(this, player);
     // One view for each side, numbered in the order the sides' first players come.
     this.view = new Uint8Array(config.playerCount);
     for (let player = 0; player < config.playerCount; player++) {
@@ -555,7 +578,7 @@ export class World {
    * The position must be on passable ground.
    */
   spawnUnit(owner: number, entityType: number, x: Fixed, y: Fixed): EntityId {
-    const type = ENTITY_TYPES[entityType];
+    const type = this.types[owner]?.[entityType];
     if (type === undefined || type.building) throw new RangeError(`not a unit type: ${entityType}`);
     const slot = this.claimSlot();
     if (slot === -1) return NO_ENTITY;
@@ -585,7 +608,7 @@ export class World {
    * whether the building is finished or only a site waiting to be built.
    */
   spawnBuilding(owner: number, entityType: number, tileX: number, tileY: number, finished = true): EntityId {
-    const type = ENTITY_TYPES[entityType];
+    const type = this.types[owner]?.[entityType];
     if (type === undefined || !type.building) throw new RangeError(`not a building type: ${entityType}`);
     const slot = this.claimSlot();
     if (slot === -1) return NO_ENTITY;
@@ -620,7 +643,7 @@ export class World {
       this.lost[this.carryKind[slot]!] = this.lost[this.carryKind[slot]!]! + this.carry[slot]!;
       this.carry[slot] = 0;
     }
-    const type = ENTITY_TYPES[this.entityType[slot]!]!;
+    const type = this.typeOf(slot);
     if (type.building) {
       const half = type.footprint >> 1;
       const left = (this.posX[slot]! >> 16) - half;
@@ -645,7 +668,7 @@ export class World {
    */
   tillFarm(slot: number): void {
     const { map } = this;
-    const footprint = ENTITY_TYPES[this.entityType[slot]!]!.footprint;
+    const footprint = this.typeOf(slot).footprint;
     const half = footprint >> 1;
     const cx = this.posX[slot]! >> 16;
     const cy = this.posY[slot]! >> 16;
@@ -655,6 +678,11 @@ export class World {
         map.setTerrain(ty * map.width + tx, Terrain.Field, tx === cx && ty === cy ? 1 : 0);
       }
     }
+  }
+
+  /** A unit's or building's figures, as its owner's research has made them. */
+  typeOf(slot: number): EntityType {
+    return this.types[this.owner[slot]!]![this.entityType[slot]!]!;
   }
 
   isAlive(id: EntityId): boolean {

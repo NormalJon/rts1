@@ -8,6 +8,7 @@
  */
 
 import { ENTITY_TYPES, TRAIN_QUEUE_LENGTH } from './entityTypes';
+import { queuedCost } from './tech';
 import { Terrain } from './map';
 import { chooseRoute, routesAfterObstacle } from './routing';
 import { hasExplored } from './vision';
@@ -43,8 +44,8 @@ export function canPlace(world: World, entityType: number, tileX: number, tileY:
  * afforded. Units standing on the plot step off it.
  */
 export function found(world: World, player: number, entityType: number, tileX: number, tileY: number): EntityId {
-  const type = ENTITY_TYPES[entityType];
-  if (type === undefined || !type.building || !type.buildable) return NO_ENTITY;
+  const type = world.types[player]![entityType];
+  if (type === undefined || !type.building || !type.buildable || world.age[player]! < type.age) return NO_ENTITY;
   if (!canPlace(world, entityType, tileX, tileY, player) || !world.canAfford(player, type.cost)) return NO_ENTITY;
   const id = world.spawnBuilding(player, entityType, tileX, tileY, false);
   if (id === NO_ENTITY) return NO_ENTITY;
@@ -78,17 +79,16 @@ function clearThePlot(world: World, left: number, top: number, size: number): vo
 
 /**
  * Pulls down a player's own building. An unfinished one gives back what it
- * cost; units it had queued for training give back theirs either way.
+ * cost; units and research it had queued give back theirs either way.
  */
 export function demolish(world: World, player: number, id: EntityId): boolean {
   if (!world.isAlive(id)) return false;
   const slot = entityIndex(id);
   if (world.mobile[slot] === 1 || world.owner[slot] !== player) return false;
-  const type = ENTITY_TYPES[world.entityType[slot]!]!;
+  const type = world.typeOf(slot);
   if (world.built[slot] === 0) world.refund(player, type.cost);
   for (let k = 0; k < world.trainLength[slot]!; k++) {
-    const queued = ENTITY_TYPES[world.trainQueue[slot * TRAIN_QUEUE_LENGTH + k]! - 1];
-    if (queued !== undefined) world.refund(player, queued.cost);
+    world.refund(player, queuedCost(world, player, world.trainQueue[slot * TRAIN_QUEUE_LENGTH + k]!));
   }
   world.destroy(id);
   return true;

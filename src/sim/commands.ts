@@ -96,7 +96,14 @@ export type Command =
       readonly unitType: number;
     }
   | {
-      /** Take a unit out of a building's training queue; 0 is the one being trained. */
+      /** Add a technology (or a reform, at the town centre) to a building's queue. See tech.ts. */
+      readonly kind: 'research';
+      readonly building: EntityId;
+      /** Index into TECHS. */
+      readonly tech: number;
+    }
+  | {
+      /** Take a unit or a technology out of a building's queue; 0 is the one under way. */
       readonly kind: 'cancelTrain';
       readonly building: EntityId;
       readonly index: number;

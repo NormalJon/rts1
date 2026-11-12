@@ -1032,7 +1032,7 @@ export class Controls {
       progress = world.buildPoints[own]! / buildPointsNeeded(world.entityType[own]!, world.config.tickRate);
     } else if (waiting > 0) {
       const head = world.trainQueue[own * TRAIN_QUEUE_LENGTH]! - 1;
-      progress = world.trainTicks[own]! / trainingTicks(head, world.config.tickRate);
+      progress = world.trainTicks[own]! / trainingTicks(ENTITY_TYPES[head]!, world.config.tickRate);
     }
     hud.progress.hidden = progress < 0;
     if (progress >= 0) hud.progressBar.style.width = `${Math.min(100, progress * 100).toFixed(1)}%`;
@@ -1090,7 +1090,7 @@ export class Controls {
     busy.forEach((slot, index) => {
       const head = world.trainQueue[slot * TRAIN_QUEUE_LENGTH]! - 1;
       const bar = hud.production.children[index]?.lastElementChild as HTMLElement | null;
-      if (bar) bar.style.width = `${Math.min(100, (world.trainTicks[slot]! / trainingTicks(head, world.config.tickRate)) * 100).toFixed(1)}%`;
+      if (bar) bar.style.width = `${Math.min(100, (world.trainTicks[slot]! / trainingTicks(ENTITY_TYPES[head]!, world.config.tickRate)) * 100).toFixed(1)}%`;
     });
 
     const population = countPopulation(world);

@@ -55,6 +55,8 @@ export function hashWorld(world: World): number {
   for (let i = 0; i < world.lost.length; i++) add(world.lost[i]!);
   for (let i = 0; i < world.grown.length; i++) add(world.grown[i]!);
   add(world.exploredHash);
+  for (let i = 0; i < world.age.length; i++) add(world.age[i]!);
+  for (let i = 0; i < world.researched.length; i++) add(world.researched[i]!);
   add(world.shotCount);
   for (let i = 0; i < world.shotCount * SHOT_FIELDS; i++) add(world.shots[i]!);
   for (const word of world.rng.getState()) add(word);
