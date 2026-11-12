@@ -22,7 +22,9 @@ describe('determinism', () => {
   });
 
   it('actually exercises the simulation', () => {
-    // Tally what went on during the match, tick by tick.
+    // Tally what went on, tick by tick, over the reference match and two
+    // others like it. Any one match can happen to be short of something;
+    // three together never are.
     let harvesting = 0;
     let constructing = 0;
     let mostBuildings = 0;
@@ -30,49 +32,67 @@ describe('determinism', () => {
     let striking = 0;
     let arrows = 0;
     let fighting = 0;
-    const { hashes, session } = playRandomMatch(config, 77, TICKS, (world) => {
-      let buildings = 0;
-      arrows += world.shotCount;
-      for (let slot = 0; slot < world.highWater; slot++) {
-        if (world.alive[slot] === 0) continue;
-        if (world.job[slot] === Job.Harvesting) harvesting++;
-        if (world.job[slot] === Job.Constructing) constructing++;
-        if (world.windup[slot]! > 0) striking++;
-        if (world.engaged[slot] === 1) fighting++;
-        if (world.mobile[slot] === 0) {
-          buildings++;
-          mostQueued = Math.max(mostQueued, world.trainLength[slot]!);
+    let deaths = 0;
+    let spentOnUnits = 0;
+    let unexplored = 0;
+    let explored = 0;
+    const kindsUsed = new Set<string>();
+    let queuedMoves = false;
+    for (const scriptSeed of [77, 78, 79]) {
+      const { hashes, session } = playRandomMatch(config, scriptSeed, TICKS, (world) => {
+        let buildings = 0;
+        arrows += world.shotCount;
+        for (let slot = 0; slot < world.highWater; slot++) {
+          if (world.alive[slot] === 0) continue;
+          if (world.job[slot] === Job.Harvesting) harvesting++;
+          if (world.job[slot] === Job.Constructing) constructing++;
+          if (world.windup[slot]! > 0) striking++;
+          if (world.engaged[slot] === 1) fighting++;
+          if (world.mobile[slot] === 0) {
+            buildings++;
+            mostQueued = Math.max(mostQueued, world.trainLength[slot]!);
+          }
+        }
+        mostBuildings = Math.max(mostBuildings, buildings);
+      });
+      const replay = session.replay();
+      expect(new Set(hashes).size).toBeGreaterThan(TICKS - 30);
+      expect(replay.commands.length).toBeGreaterThan(100);
+      for (const { command } of replay.commands) {
+        kindsUsed.add(command.kind);
+        if (command.kind === 'move' && command.queue === true) queuedMoves = true;
+      }
+      const { world } = session;
+      expect(world.livingEntities().length).toBeGreaterThan(20);
+      for (let slot = 0; slot < world.highWater; slot++) deaths += world.generation[slot]!;
+      spentOnUnits += world.spent[0]! + world.spent[4]!; // food
+      for (const side of world.explored) {
+        for (let tile = 0; tile < side.length; tile++) {
+          if (side[tile] === 1) explored++;
+          else unexplored++;
         }
       }
-      mostBuildings = Math.max(mostBuildings, buildings);
-    });
-    const replay = session.replay();
-    expect(new Set(hashes).size).toBeGreaterThan(TICKS - 30);
-    expect(replay.commands.length).toBeGreaterThan(100);
-    expect(replay.commands.some((c) => c.command.kind === 'move' && c.command.queue === true)).toBe(true);
+    }
+    expect(queuedMoves).toBe(true);
     const kinds = [
       'gather', 'deliver', 'build', 'construct', 'train', 'cancelTrain', 'rally', 'demolish',
       'attack', 'attackMove', 'patrol', 'hold', 'stop',
-    ] as const;
-    for (const kind of kinds) {
-      expect(replay.commands.some((c) => c.command.kind === kind), kind).toBe(true);
-    }
-    expect(session.world.livingEntities().length).toBeGreaterThan(20);
+    ];
+    for (const kind of kinds) expect(kindsUsed.has(kind), kind).toBe(true);
     // Villagers gathered and built, sites were founded, units were queued and paid for.
-    expect(harvesting).toBeGreaterThan(300);
-    expect(constructing).toBeGreaterThan(300);
+    expect(harvesting).toBeGreaterThan(900);
+    expect(constructing).toBeGreaterThan(900);
     expect(mostBuildings).toBeGreaterThan(2);
     expect(mostQueued).toBeGreaterThan(0);
-    const { spent } = session.world;
-    expect(spent[0]! + spent[4]!).toBeGreaterThan(0); // food, on units
+    expect(spentOnUnits).toBeGreaterThan(0);
     // Soldiers fought, arrows flew, and some of both sides did not come back.
-    expect(fighting).toBeGreaterThan(3000);
-    expect(striking).toBeGreaterThan(1000);
-    expect(arrows).toBeGreaterThan(200);
-    const { generation, highWater } = session.world;
-    let deaths = 0;
-    for (let slot = 0; slot < highWater; slot++) deaths += generation[slot]!;
-    expect(deaths).toBeGreaterThan(5);
+    expect(fighting).toBeGreaterThan(9000);
+    expect(striking).toBeGreaterThan(3000);
+    expect(arrows).toBeGreaterThan(600);
+    expect(deaths).toBeGreaterThan(20);
+    // Each side found out a good deal of the map, and neither found out all of it.
+    expect(explored).toBeGreaterThan(unexplored);
+    expect(unexplored).toBeGreaterThan(2000);
   });
 
   it('never leaves a unit in an obstacle or a group miscounted', () => {
@@ -176,7 +196,7 @@ describe('determinism', () => {
     // deliberate, update the value here and in scripts/browser-check.mjs; old
     // replays will no longer play back.
     const { hashes } = playRandomMatch(config, 77, TICKS);
-    expect(hashHex(hashes[TICKS - 1]!)).toBe('ab77540a');
+    expect(hashHex(hashes[TICKS - 1]!)).toBe('863ee180');
   });
 });
 

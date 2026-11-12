@@ -25,13 +25,21 @@ const A = Kind.Archer;
 const H = Kind.Horseman;
 const V = Kind.Villager;
 
+// These tests are about fighting, not about seeing, so the map is revealed:
+// everyone can see everything. test/vision.test.ts covers the fog.
 function flatWorld(size = 40, overrides: Partial<SimConfig> = {}): World {
-  return new World(defaultConfig({ mapWidth: size, mapHeight: size, ...overrides }));
+  return new World(defaultConfig({ mapWidth: size, mapHeight: size, mapState: 'revealed', ...overrides }));
 }
 
 function worldFrom(rows: string[], overrides: Partial<SimConfig> = {}): World {
   return new World(
-    defaultConfig({ mapWidth: rows[0]!.length, mapHeight: rows.length, map: { kind: 'ascii', rows }, ...overrides }),
+    defaultConfig({
+      mapWidth: rows[0]!.length,
+      mapHeight: rows.length,
+      map: { kind: 'ascii', rows },
+      mapState: 'revealed',
+      ...overrides,
+    }),
   );
 }
 

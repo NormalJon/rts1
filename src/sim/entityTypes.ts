@@ -63,6 +63,8 @@ export interface EntityType {
 
   /** How much damage it can take. */
   readonly hp: number;
+  /** How far it sees, in tiles. Whatever is further off is hidden unless someone else on its side sees it. */
+  readonly sight: number;
   /** Taken off every blow, and off every arrow. A hit always does at least 1. */
   readonly meleeArmor: number;
   readonly rangedArmor: number;
@@ -131,6 +133,7 @@ function unit(
   seconds: number,
   body: {
     hp: number;
+    sight: number;
     speed: Fixed;
     radius: Fixed;
     tags: number;
@@ -149,6 +152,7 @@ function unit(
     cost,
     seconds,
     hp: body.hp,
+    sight: body.sight,
     meleeArmor: body.meleeArmor ?? 0,
     rangedArmor: body.rangedArmor ?? 0,
     tags: body.tags,
@@ -180,7 +184,7 @@ function building(
   seconds: number,
   footprint: number,
   hp: number,
-  extras: { accepts?: number; housing?: number; trains?: readonly number[]; buildable?: boolean } = {},
+  extras: { accepts?: number; housing?: number; trains?: readonly number[]; buildable?: boolean; sight?: number } = {},
   weapon: Weapon = UNARMED,
 ): EntityType {
   return {
@@ -189,6 +193,7 @@ function building(
     cost,
     seconds,
     hp,
+    sight: extras.sight ?? 6,
     // Timber and stone shrug off blades, and arrows all but bounce off.
     meleeArmor: 4,
     rangedArmor: 8,
@@ -254,7 +259,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
     'spearman',
     [60, 20, 0, 0],
     15,
-    { hp: 80, speed: fromRatio(8, 5), radius: fromRatio(1, 4), tags: Tag.Infantry | Tag.Spear, braces: true },
+    { hp: 80, sight: 8, speed: fromRatio(8, 5), radius: fromRatio(1, 4), tags: Tag.Infantry | Tag.Spear, braces: true },
     { damage: 8, range: fromRatio(2, 5), windup: fromRatio(1, 2), cycle: fromRatio(7, 4), bonuses: [[Tag.Cavalry, 16]] },
   ),
   unit(
@@ -263,6 +268,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
     20,
     {
       hp: 50,
+      sight: 7,
       speed: fromRatio(5, 4),
       radius: fromRatio(9, 40),
       tags: Tag.Villager,
@@ -278,7 +284,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
     150,
     5,
     2400,
-    { accepts: ALL_RESOURCES, housing: 10, trains: [Kind.Villager], buildable: false },
+    { accepts: ALL_RESOURCES, housing: 10, trains: [Kind.Villager], buildable: false, sight: 11 },
     ARROWS_FROM_A_BUILDING,
   ),
   building('house', [0, 50, 0, 0], 20, 3, 400, { housing: 10 }),
@@ -290,7 +296,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
     'archer',
     [30, 50, 0, 0],
     15,
-    { hp: 60, speed: fromRatio(8, 5), radius: fromRatio(1, 4), tags: Tag.Infantry | Tag.Ranged },
+    { hp: 60, sight: 9, speed: fromRatio(8, 5), radius: fromRatio(1, 4), tags: Tag.Infantry | Tag.Ranged },
     {
       damage: 5,
       ranged: true,
@@ -304,7 +310,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
     'horseman',
     [100, 20, 0, 0],
     22,
-    { hp: 120, speed: fromRatio(12, 5), radius: fromRatio(7, 20), tags: Tag.Cavalry, rangedArmor: 2 },
+    { hp: 120, sight: 10, speed: fromRatio(12, 5), radius: fromRatio(7, 20), tags: Tag.Cavalry, rangedArmor: 2 },
     {
       damage: 9,
       range: fromRatio(2, 5),
@@ -316,7 +322,7 @@ export const ENTITY_TYPES: readonly EntityType[] = [
   ),
   building('archery range', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Archer] }),
   building('stable', [0, 150, 0, 0], 40, 5, 1000, { trains: [Kind.Horseman] }),
-  building('watchtower', [0, 100, 50, 0], 45, 3, 700, {}, { ...ARROWS_FROM_A_BUILDING, range: 7 * ONE }),
+  building('watchtower', [0, 100, 50, 0], 45, 3, 700, { sight: 13 }, { ...ARROWS_FROM_A_BUILDING, range: 7 * ONE }),
 ];
 
 /** How fast an arrow flies, in tiles per second. */
@@ -335,6 +341,9 @@ export function ticksOf(seconds: Fixed, tickRate: number): number {
   if (seconds <= 0) return 0;
   return Math.max(1, (seconds * tickRate + HALF) >> 16);
 }
+
+/** A building site sees only its own surroundings until it is finished. */
+export const SITE_SIGHT = 3;
 
 /** A building site starts with this share of its hit points and gains the rest as it is built. */
 export function siteHp(entityType: number): number {

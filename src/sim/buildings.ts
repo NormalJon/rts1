@@ -10,10 +10,16 @@
 import { ENTITY_TYPES, TRAIN_QUEUE_LENGTH } from './entityTypes';
 import { Terrain } from './map';
 import { chooseRoute, routesAfterObstacle } from './routing';
+import { hasExplored } from './vision';
 import { entityIndex, MoveState, NO_ENTITY, type EntityId, type World } from './world';
 
-/** Whether a building of this type could be founded with its centre on a tile. */
-export function canPlace(world: World, entityType: number, tileX: number, tileY: number): boolean {
+/**
+ * Whether a building of this type could be founded with its centre on a tile.
+ *
+ * @param player  If given, the plot must also be ground that player's side
+ *   has explored: nobody builds on land they have never seen.
+ */
+export function canPlace(world: World, entityType: number, tileX: number, tileY: number, player?: number): boolean {
   const type = ENTITY_TYPES[entityType];
   if (type === undefined || !type.building) return false;
   if (!Number.isInteger(tileX) || !Number.isInteger(tileY)) return false;
@@ -25,6 +31,7 @@ export function canPlace(world: World, entityType: number, tileX: number, tileY:
       const tile = ty * map.width + tx;
       // Open grass only: not water, a ford, trees, rock, a deposit or another building.
       if (map.terrain[tile] !== Terrain.Grass || map.blocked[tile] === 1) return false;
+      if (player !== undefined && !hasExplored(world, player, tile)) return false;
     }
   }
   return true;
@@ -38,7 +45,7 @@ export function canPlace(world: World, entityType: number, tileX: number, tileY:
 export function found(world: World, player: number, entityType: number, tileX: number, tileY: number): EntityId {
   const type = ENTITY_TYPES[entityType];
   if (type === undefined || !type.building || !type.buildable) return NO_ENTITY;
-  if (!canPlace(world, entityType, tileX, tileY) || !world.canAfford(player, type.cost)) return NO_ENTITY;
+  if (!canPlace(world, entityType, tileX, tileY, player) || !world.canAfford(player, type.cost)) return NO_ENTITY;
   const id = world.spawnBuilding(player, entityType, tileX, tileY, false);
   if (id === NO_ENTITY) return NO_ENTITY;
   world.pay(player, type.cost);

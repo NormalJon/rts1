@@ -13,4 +13,5 @@ export * from './rng';
 export * from './sim';
 export * from './snapshot';
 export * from './units';
+export * from './vision';
 export * from './world';

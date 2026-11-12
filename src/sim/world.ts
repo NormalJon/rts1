@@ -15,6 +15,7 @@ import { Rng } from './rng';
 import { SearchScratch, type Search } from './search';
 import { buildPointsNeeded, ENTITY_TYPES, Kind, RESOURCE_COUNT, siteHp, TRAIN_QUEUE_LENGTH } from './entityTypes';
 import { perSecondToPerTick } from './units';
+import { exploreEverything, lookAround, stopLooking } from './vision';
 
 export interface SimConfig {
   /** Simulation steps per second. Fixed for the whole match. */
@@ -27,6 +28,14 @@ export interface SimConfig {
    * their own side, so an empty list is a free-for-all.
    */
   readonly teams: readonly number[];
+  /**
+   * How much of the map each side knows to begin with. 'concealed' is the
+   * usual game: unexplored ground is black, and explored ground shows only
+   * what was last seen there. 'explored' starts with the lie of the land
+   * known. 'revealed' does away with hiding altogether: everyone sees
+   * everything, always.
+   */
+  readonly mapState: 'concealed' | 'explored' | 'revealed';
   /** Map size in tiles. */
   readonly mapWidth: number;
   readonly mapHeight: number;
@@ -52,6 +61,7 @@ export function defaultConfig(overrides: Partial<SimConfig> = {}): SimConfig {
     seed: 1,
     playerCount: 2,
     teams: [],
+    mapState: 'concealed',
     mapWidth: 64,
     mapHeight: 64,
     map: { kind: 'flat' },
@@ -280,6 +290,9 @@ export class World {
   readonly chaseTries: Uint8Array;
   /** Riders: ticks of unbroken running, which is what makes a charge. */
   readonly momentum: Uint16Array;
+  /** The tile it is counted as looking out from (-1 before its first look), and how far it sees from there. */
+  readonly sightTile: Int32Array;
+  readonly sightRadius: Uint8Array;
 
   /** Buildings: 1 once construction is finished, and the work done toward that. */
   readonly built: Uint8Array;
@@ -303,6 +316,18 @@ export class World {
   readonly lost: Int32Array;
   /** Which side each player is on. */
   readonly team: Uint8Array;
+
+  /**
+   * What each side sees. Allies see as one, so this is kept per side, not per
+   * player: `view[player]` says which. For each side, `seen` counts how many
+   * of its units and buildings can see each tile, and `explored` marks every
+   * tile that has ever been seen. See vision.ts.
+   */
+  readonly view: Uint8Array;
+  readonly seen: Uint16Array[] = [];
+  readonly explored: Uint8Array[] = [];
+  /** A running checksum of everything explored, so the world checksum need not read every tile. */
+  exploredHash = 0;
 
   /**
    * Arrows in the air. Each is a row of SHOT_FIELDS numbers: where it was
@@ -413,6 +438,8 @@ export class World {
     this.rooted = this.column('rooted', new Uint8Array(n));
     this.chaseTries = this.column('chaseTries', new Uint8Array(n));
     this.momentum = this.column('momentum', new Uint16Array(n));
+    this.sightTile = this.column('sightTile', new Int32Array(n));
+    this.sightRadius = this.column('sightRadius', new Uint8Array(n));
     this.built = this.column('built', new Uint8Array(n));
     this.buildPoints = this.column('buildPoints', new Int32Array(n));
     this.trainQueue = this.column('trainQueue', new Uint8Array(n * TRAIN_QUEUE_LENGTH), TRAIN_QUEUE_LENGTH);
@@ -432,6 +459,20 @@ export class World {
       this.team[player] = side === undefined ? 128 + player : side & 127;
     }
     this.shots = new Int32Array(64 * SHOT_FIELDS);
+    // One view for each side, numbered in the order the sides' first players come.
+    this.view = new Uint8Array(config.playerCount);
+    for (let player = 0; player < config.playerCount; player++) {
+      let ally = 0;
+      while (this.team[ally] !== this.team[player]) ally++;
+      if (ally < player) {
+        this.view[player] = this.view[ally]!;
+        continue;
+      }
+      this.view[player] = this.seen.length;
+      this.seen.push(new Uint16Array(this.map.tileCount));
+      this.explored.push(new Uint8Array(this.map.tileCount));
+    }
+    if (config.mapState !== 'concealed' && !restoring) exploreEverything(this);
 
     this.searchScratch = new SearchScratch(this.map.tileCount);
     this.scratchX = new Int32Array(n);
@@ -499,6 +540,7 @@ export class World {
     this.jobTile[slot] = -1;
     this.jobTarget[slot] = NO_ENTITY;
     this.target[slot] = NO_ENTITY;
+    this.sightTile[slot] = -1;
     this.rallyX[slot] = -1;
     this.rallyY[slot] = -1;
     this.rallyTile[slot] = -1;
@@ -530,6 +572,7 @@ export class World {
     this.hp[slot] = type.hp;
     this.homeX[slot] = x;
     this.homeY[slot] = y;
+    lookAround(this, slot);
     return this.idAt(slot);
   }
 
@@ -559,6 +602,7 @@ export class World {
     }
     const half = type.footprint >> 1;
     this.map.setBuilding(tileX - half, tileY - half, type.footprint, true);
+    lookAround(this, slot);
     return this.idAt(slot);
   }
 
@@ -566,6 +610,7 @@ export class World {
     if (!this.isAlive(id)) return;
     const slot = entityIndex(id);
     this.clearOrders(slot);
+    stopLooking(this, slot);
     // Whatever a villager was carrying goes with it.
     if (this.carry[slot]! > 0) {
       this.lost[this.carryKind[slot]!] = this.lost[this.carryKind[slot]!]! + this.carry[slot]!;

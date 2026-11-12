@@ -15,6 +15,7 @@ import { ENTITY_TYPES } from './entityTypes';
 import { idiv } from './fixed';
 import type { RngState } from './rng';
 import { checksumBytes, restoreSearch } from './routing';
+import { exploredRuns, restoreVision } from './vision';
 import { SHOT_FIELDS, World, type RouteRequest, type SimConfig } from './world';
 
 interface SavedGroup {
@@ -42,7 +43,7 @@ interface SavedSearch {
 }
 
 export interface WorldSnapshot {
-  readonly version: 5;
+  readonly version: 6;
   readonly config: SimConfig;
   readonly tick: number;
   readonly rng: RngState;
@@ -58,6 +59,12 @@ export interface WorldSnapshot {
   readonly lost: readonly number[];
   /** Arrows in the air, SHOT_FIELDS numbers each. */
   readonly shots: readonly number[];
+  /**
+   * What each side has explored, as runs: so many tiles unexplored, so many
+   * explored, and so on in turn. What each side can see at the moment is not
+   * saved; it follows from where everyone stands.
+   */
+  readonly explored: readonly (readonly number[])[];
   /** Each entity property by name, holding slots 0 to highWater - 1. */
   readonly columns: Readonly<Record<string, readonly number[]>>;
   /** Waypoint lists by slot, for units following their own path. */
@@ -82,7 +89,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
   }
   const active = world.activeSearch;
   return {
-    version: 5,
+    version: 6,
     config: { ...world.config },
     tick: world.tick,
     rng: world.rng.getState(),
@@ -94,6 +101,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
     spent: Array.from(world.spent),
     lost: Array.from(world.lost),
     shots: Array.from(world.shots.subarray(0, world.shotCount * SHOT_FIELDS)),
+    explored: world.explored.map((_, view) => exploredRuns(world, view)),
     columns,
     paths,
     nextGroupId: world.nextGroupId,
@@ -122,7 +130,7 @@ export function takeSnapshot(world: World): WorldSnapshot {
 }
 
 export function restoreSnapshot(snapshot: WorldSnapshot): World {
-  if (snapshot.version !== 5) {
+  if (snapshot.version !== 6) {
     throw new Error(`unsupported snapshot version ${String(snapshot.version)}`);
   }
   const world = new World(snapshot.config, true);
@@ -153,6 +161,7 @@ export function restoreSnapshot(snapshot: WorldSnapshot): World {
     const half = footprint >> 1;
     world.map.setBuilding((world.posX[slot]! >> 16) - half, (world.posY[slot]! >> 16) - half, footprint, true);
   }
+  restoreVision(world, snapshot.explored);
   world.stock.set(snapshot.stock);
   world.spent.set(snapshot.spent);
   world.lost.set(snapshot.lost);

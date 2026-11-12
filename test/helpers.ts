@@ -322,6 +322,7 @@ export function brokenInvariant(world: World): string | null {
   for (let i = 0; i < world.shotCount; i++) {
     if (world.shots[i * SHOT_FIELDS + 6]! < world.tick) return `arrow ${i} should have landed already`;
   }
+  if (world.tick % 10 === 0) return brokenVision(world);
   return null;
 }
 
@@ -340,4 +341,38 @@ export function smallestGap(world: World): number {
     }
   }
   return smallest;
+}
+
+/**
+ * Checks what each side is counted as seeing against a count made from
+ * scratch: every living thing looking out from the tile it stands on.
+ */
+export function brokenVision(world: World): string | null {
+  const { map } = world;
+  const expected = world.seen.map(() => new Uint16Array(map.tileCount));
+  for (let slot = 0; slot < world.highWater; slot++) {
+    if (world.alive[slot] === 0) continue;
+    const type = ENTITY_TYPES[world.entityType[slot]!]!;
+    const radius = type.building && world.built[slot] === 0 ? Math.min(type.sight, 3) : type.sight;
+    const cx = Math.min(map.width - 1, Math.max(0, world.posX[slot]! >> 16));
+    const cy = Math.min(map.height - 1, Math.max(0, world.posY[slot]! >> 16));
+    const counts = expected[world.view[world.owner[slot]!]!]!;
+    for (let y = Math.max(0, cy - radius); y <= Math.min(map.height - 1, cy + radius); y++) {
+      for (let x = Math.max(0, cx - radius); x <= Math.min(map.width - 1, cx + radius); x++) {
+        if (Math.hypot(x - cx, y - cy) <= radius + 0.5) counts[y * map.width + x]!++;
+      }
+    }
+  }
+  for (let view = 0; view < expected.length; view++) {
+    const counts = expected[view]!;
+    const seen = world.seen[view]!;
+    const explored = world.explored[view]!;
+    for (let tile = 0; tile < map.tileCount; tile++) {
+      if (seen[tile] !== counts[tile]) {
+        return `side ${view} is counted as having ${seen[tile]} lookers on tile ${tile}, but ${counts[tile]} can see it`;
+      }
+      if (seen[tile]! > 0 && explored[tile] === 0) return `side ${view} sees tile ${tile} without having explored it`;
+    }
+  }
+  return null;
 }

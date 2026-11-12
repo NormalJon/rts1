@@ -23,6 +23,8 @@
  * Told simply to move, it ignores everything. Told to hold, it strikes only at
  * what comes within reach.
  *
+ * Nobody goes after an enemy their side cannot see (see vision.ts).
+ *
  * Everything dealt in a tick is taken off at the end of the tick, so two
  * soldiers who strike at the same moment both land their blows.
  */
@@ -31,6 +33,7 @@ import { chargeReadyTicks, ENTITY_TYPES, HIGH_GROUND, SHOT_SPEED, ticksOf, type 
 import { HALF, idiv, length, mulDiv, ONE, type Fixed } from './fixed';
 import { buildNeighbourGrid, CELL_SHIFT } from './movement';
 import { beginOrder, startNextOrder } from './routing';
+import { canSee } from './vision';
 import { entityIndex, MoveState, NO_ENTITY, OrderKind, SHOT_FIELDS, type EntityId, type World } from './world';
 
 /** How far off a soldier notices an enemy: this, or a little past its own range if that is further. */
@@ -143,9 +146,15 @@ function stillWanted(world: World, slot: number, target: EntityId, type: EntityT
   return worthChasing(world, slot, at, world.orderKind[slot]!, type);
 }
 
-/** Whether a unit's orders let it go after something that is where this is now. */
+/**
+ * Whether a unit's orders let it go after something that is where this is
+ * now. Nobody goes after what their side cannot see, except that a building
+ * once ordered attacked stays a target: it is not going anywhere.
+ */
 function worthChasing(world: World, slot: number, at: number, kind: number, type: EntityType): boolean {
-  if (kind === OrderKind.AttackTarget) return true;
+  const inSight = canSee(world, world.owner[slot]!, at);
+  if (kind === OrderKind.AttackTarget) return inSight || world.mobile[at] === 0;
+  if (!inSight) return false;
   if (kind === OrderKind.Hold) return gapBetween(world, slot, at) <= type.range;
   if (kind === OrderKind.None) {
     // A guard keeps near its post: where it stands, or where it left to fight.
@@ -557,6 +566,7 @@ function nearestInRange(world: World, slot: number, type: EntityType): EntityId 
         if (!world.hostile(me, owner[other]!)) continue;
         const gap = gapBetween(world, slot, other);
         if (gap > type.range || (best !== -1 && gap >= bestGap)) continue;
+        if (!canSee(world, me, other)) continue;
         best = other;
         bestGap = gap;
       }

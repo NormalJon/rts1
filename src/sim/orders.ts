@@ -12,6 +12,7 @@ import { ENTITY_TYPES, resourceOfTerrain } from './entityTypes';
 import { clamp, fromRatio, HALF, idiv, isqrt, length, mul, mulDiv, ONE, type Fixed } from './fixed';
 import { cancelTraining, queueTraining } from './production';
 import { beginOrder } from './routing';
+import { canSee, hasExplored } from './vision';
 import { entityIndex, MoveState, NO_ENTITY, OrderKind, ORDER_QUEUE_LENGTH, type World } from './world';
 
 /** Limits on what a single command may ask for, whoever sent it. */
@@ -107,7 +108,15 @@ function sendBuilders(world: World, player: number, units: readonly number[], si
 function applyAttack(world: World, player: number, command: Extract<Command, { kind: 'attack' }>): void {
   const target = command.target;
   if (!world.isAlive(target)) return;
-  if (!world.hostile(player, world.owner[entityIndex(target)]!)) return;
+  const at = entityIndex(target);
+  if (!world.hostile(player, world.owner[at]!)) return;
+  // A unit must be in sight to be singled out. A building need only stand on
+  // ground the player has seen: it can be attacked from memory.
+  const known =
+    world.mobile[at] === 1
+      ? canSee(world, player, at)
+      : canSee(world, player, at) || hasExplored(world, player, world.map.tileAt(world.posX[at]!, world.posY[at]!));
+  if (!known) return;
   for (const slot of ownedSlots(world, player, command.units)) {
     if (ENTITY_TYPES[world.entityType[slot]!]!.damage === 0) continue;
     world.clearOrders(slot);

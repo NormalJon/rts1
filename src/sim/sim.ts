@@ -12,6 +12,7 @@ import { movementSystem } from './movement';
 import { applyCommand } from './orders';
 import { productionSystem } from './production';
 import { routingSystem } from './routing';
+import { visionSystem } from './vision';
 import type { World } from './world';
 
 export function step(world: World): void {
@@ -21,5 +22,6 @@ export function step(world: World): void {
   combatSystem(world);
   routingSystem(world);
   movementSystem(world);
+  visionSystem(world);
   world.tick++;
 }
