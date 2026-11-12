@@ -1,16 +1,14 @@
 /**
- * The playtest page: a small skirmish map to try the game on.
+ * The playtest page: a skirmish against the computer.
  *
- * Two towns face each other across a river. The player leads the blue one.
- * The red one has no general until the game has an AI, so a short script
- * stands in for it here: its villagers work, a garrison guards the town, and
- * a raiding party sets out for the player's town every so often.
+ * Two towns face each other across a river. The player leads the blue one
+ * and the skirmish AI the red, at a level the player picks.
  */
 
+import { SkirmishAi, type Difficulty } from '../../ai/skirmish';
 import { Kind, RESOURCE_COUNT, RESOURCE_NAMES } from '../../sim/entityTypes';
 import { hashHex, hashWorld } from '../../sim/hash';
-import { Terrain } from '../../sim/map';
-import { defaultConfig, OrderKind } from '../../sim/world';
+import { defaultConfig } from '../../sim/world';
 import { LocalSession } from '../../session/localSession';
 import { FixedStepper } from '../../session/stepper';
 import { Controls } from './controls';
@@ -22,6 +20,20 @@ function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (!el) throw new Error(`missing element #${id}`);
   return el as T;
+}
+
+const LEVELS: readonly Difficulty[] = ['easy', 'standard', 'hard'];
+const LEVEL_KEY = 'rts-opponent-level';
+
+/** The opponent the player last asked for, or the gentlest if they never have. */
+function chosenLevel(): Difficulty {
+  try {
+    const saved = localStorage.getItem(LEVEL_KEY);
+    if (saved !== null && (LEVELS as readonly string[]).includes(saved)) return saved as Difficulty;
+  } catch {
+    // No storage here (a private window, say): the default will do.
+  }
+  return 'easy';
 }
 
 function fail(message: string): void {
@@ -46,63 +58,14 @@ async function start(): Promise<void> {
   const { world } = session;
   const [home, enemy] = world.map.starts;
   if (!home || !enemy) throw new Error('the map has no start positions');
-  // Three spearmen beside the player's town to begin with; the rest must be
-  // trained. Red gets a garrison of five, who never leave home.
-  const tile = 1 << 16;
-  session.issue(0, { kind: 'spawn', x: home.x - 6 * tile, y: home.y + 2 * tile, count: 3, unitType: Kind.Spearman });
-  session.issue(1, { kind: 'spawn', x: enemy.x + 6 * tile, y: enemy.y - 2 * tile, count: 3, unitType: Kind.Spearman });
-  session.issue(1, { kind: 'spawn', x: enemy.x - 6 * tile, y: enemy.y - 3 * tile, count: 2, unitType: Kind.Archer });
-  // Let everyone find their feet before the curtain goes up.
-  for (let i = 0; i < 60; i++) session.step();
-  // There is no AI yet, so the red villagers are simply set to work near home:
-  // two to the berries, two to the trees, one each to gold and stone.
-  const redVillagers = world.livingUnits(1).filter((id) => world.entityType[id & 0xfffff] === Kind.Villager);
-  [Terrain.Berries, Terrain.Berries, Terrain.Forest, Terrain.Forest, Terrain.Gold, Terrain.Stone].forEach((terrain, i) => {
-    const near = world.map.nearestTile(enemy.x >> 16, enemy.y >> 16, 16, (t) => world.map.terrain[t] === terrain);
-    if (near !== -1 && redVillagers[i] !== undefined) {
-      session.issue(1, { kind: 'gather', units: [redVillagers[i]], tile: near });
-    }
-  });
-  for (let i = 0; i < 30; i++) session.step();
-
-  // The stand-in for a red general. Everything it does goes through the same
-  // commands a player's clicks do, so a replay of the match still plays back.
+  // The red side is led by the skirmish AI, at the level the player last chose.
+  const level = chosenLevel();
+  const ai = new SkirmishAi(1, level);
+  session.control(1, ai);
   const townCentreOf = (player: number): number =>
     world.livingEntities(player).find((id) => world.entityType[id & 0xfffff] === Kind.TownCentre) ?? -1;
   const blueTown = townCentreOf(0);
   const redTown = townCentreOf(1);
-  const isSoldier = (id: number): boolean => world.entityType[id & 0xfffff] !== Kind.Villager;
-  const garrison = new Set(world.livingUnits(1).filter(isSoldier));
-  const RAID_FIRST = 180 * world.config.tickRate;
-  const RAID_EVERY = 90 * world.config.tickRate;
-  let raids = 0;
-  let nextRaid = RAID_FIRST;
-  let musterAt = -1;
-  const redGeneral = (): void => {
-    if (!world.isAlive(redTown)) return;
-    if (world.tick >= nextRaid) {
-      // Half spears, a third bows, the rest on horseback; one more each time, up to fourteen.
-      const size = Math.min(3 + raids, 14);
-      const spears = Math.ceil(size / 2);
-      const bows = Math.floor(size / 3);
-      const towardMiddle = enemy.x > home.x ? -1 : 1;
-      const muster = { x: enemy.x + towardMiddle * 8 * tile, y: enemy.y + towardMiddle * 4 * tile };
-      session.issue(1, { kind: 'spawn', ...muster, count: spears, unitType: Kind.Spearman });
-      session.issue(1, { kind: 'spawn', ...muster, count: bows, unitType: Kind.Archer });
-      session.issue(1, { kind: 'spawn', ...muster, count: size - spears - bows, unitType: Kind.Horseman });
-      raids++;
-      nextRaid += RAID_EVERY;
-      musterAt = world.tick + 10;
-    }
-    if (world.tick === musterAt) {
-      // Every red soldier who is not garrison and has nothing to do marches on the player's town.
-      const party = world.livingUnits(1).filter((id) => {
-        const slot = id & 0xfffff;
-        return isSoldier(id) && !garrison.has(id) && world.orderKind[slot] === OrderKind.None && world.engaged[slot] === 0;
-      });
-      if (party.length > 0) session.issue(1, { kind: 'attackMove', units: party, x: home.x, y: home.y });
-    }
-  };
 
   let view: GameView;
   try {
@@ -177,11 +140,24 @@ async function start(): Promise<void> {
   // Open to begin with where there is room for it.
   setHelp(window.innerWidth >= 760);
   helpButton.addEventListener('click', () => setHelp(help.hasAttribute('hidden')));
+  // Choosing another opponent starts the match afresh.
+  const levelPicker = byId<HTMLSelectElement>('level');
+  levelPicker.value = level;
+  levelPicker.addEventListener('change', () => {
+    try {
+      localStorage.setItem(LEVEL_KEY, levelPicker.value);
+    } catch {
+      // Without storage the choice cannot outlive the page, so there is nothing to restart into.
+      return;
+    }
+    location.reload();
+  });
+
   // A testing aid: draw the whole map as if there were no fog. The rules do not change.
   const fogButton = byId<HTMLButtonElement>('btn-fog');
   fogButton.addEventListener('click', () => {
-    view.revealAll = !view.revealAll;
-    fogButton.setAttribute('aria-pressed', String(view.revealAll));
+    view.liftFog(!view.fogLifted);
+    fogButton.setAttribute('aria-pressed', String(view.fogLifted));
     canvas.focus();
   });
   byId('btn-fullscreen').addEventListener('click', () => {
@@ -196,11 +172,11 @@ async function start(): Promise<void> {
     session,
     view,
     controls,
+    ai,
     /** Runs the match forward a number of ticks at once. */
     advance: (ticks: number): void => {
       for (let i = 0; i < ticks; i++) {
         view.rememberPositions();
-        redGeneral();
         session.step();
       }
     },
@@ -220,7 +196,6 @@ async function start(): Promise<void> {
     const due = stepper.advance(elapsed);
     for (let i = 0; i < due; i++) {
       view.rememberPositions();
-      redGeneral();
       const before = performance.now();
       session.step();
       simMs += performance.now() - before;

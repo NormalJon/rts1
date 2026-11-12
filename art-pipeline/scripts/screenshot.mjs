@@ -1,7 +1,7 @@
 // Renders sample-sheet.html in headless Chromium and saves screenshots for review.
 // The page is wrapped the way the publisher wraps it; CDN scripts are served from node_modules.
 //   node scripts/screenshot.mjs                    everything
-//   node scripts/screenshot.mjs scene              one section: pages, closeups, icons, scene, village, units
+//   node scripts/screenshot.mjs scene              one section: pages, closeups, icons, scene, village, units, farms
 //   node scripts/screenshot.mjs view <id> <yaw> <pitch> [name]    one card from one angle
 //   node scripts/screenshot.mjs review [id ...]    each building on its plot from four sides
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
@@ -285,7 +285,7 @@ if (only.length === 0 || only.some((n) => n.startsWith('model') || n === 'closeu
   // The RTS view: the same models from a high camera.
   for (const id of ids) await page.evaluate((i) => window.__sheet.view(i, 0.6, 0.95), id);
   await settle(page);
-  for (const id of ['house', 'hall', 'barracks', 'archery-range', 'stable', 'lumber-camp', 'mill', 'mining-camp', 'keep', 'watchtower', 'spearman', 'archer', 'horseman', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
+  for (const id of ['house', 'hall', 'barracks', 'archery-range', 'stable', 'lumber-camp', 'mill', 'farm', 'mining-camp', 'keep', 'watchtower', 'spearman', 'archer', 'horseman', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
     await cardShot(page, id, `model-${id}-high`);
   }
   // Buildings square on from the front, which is how the game camera meets an unturned building.
@@ -372,6 +372,27 @@ if (want('scene') || want('units') || only.length === 0) {
   const second = await openScene(camp, buildings.map(({ id, x, z }) => plotOutlines(id, x, z)[0]));
   await second.shot('scene-military', [{ x: 0.5, z: -2, distance: 54 }]);
   await second.close();
+}
+
+// Farms in bulk: four side by side in a block next to the mill and a house, with a villager
+// at work on one, a metre south of its middle where the game stands him, and a spearman
+// standing in the middle of another, to show how units look when they cross.
+if (want('scene') || want('farms') || only.length === 0) {
+  const farms = [[-4, -4], [2, -4], [-4, 2], [2, 2]].map(([x, z]) => ({ id: 'farm', x, z }));
+  const buildings = [...farms, { id: 'mill', x: 8, z: -4 }, { id: 'house', x: 8, z: 2 }];
+  const hit = manifest.find((m) => m.id === 'villager').timing.chop.hit;
+  const items = [
+    ...buildings,
+    { id: 'villager', x: -4, z: 3, rot: 0.3, clip: 'chop', time: hit },
+    { id: 'spearman', x: 2, z: -4, rot: 0.4 },
+    { id: 'villager', x: 0.6, z: 1.2, rot: -1.2, clip: 'walk', time: 0.22 },
+    { id: 'villager', x: 5.2, z: -0.6, rot: 2.4 },
+    { id: 'spearman', x: -8.6, z: 4.6, rot: 0.9 },
+  ];
+  const scene = await openScene(items, buildings.map(({ id, x, z }) => plotOutlines(id, x, z)[0]));
+  await scene.shot('scene-farms', [{ x: 2, z: -0.5, distance: 47 }]);
+  await scene.shot('scene-farms-near', [{ x: 0.5, z: -0.5, distance: 26 }]);
+  await scene.close();
 }
 
 // A first-age village from the game camera: every building unturned on its own plot of 2 m

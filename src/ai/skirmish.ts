@@ -55,6 +55,8 @@ interface Tuning {
   /** How big the army must be for the first attack, and how much bigger for each one after. */
   readonly firstAttack: number;
   readonly attackGrowth: number;
+  /** Seconds it leaves its opponent in peace at the start, however many soldiers it has. */
+  readonly patience: number;
   /** Villagers it wants before each military building. */
   readonly barracksAt: number;
   readonly rangeAt: number;
@@ -70,11 +72,12 @@ const TUNING: Record<Difficulty, Tuning> = {
   easy: {
     thinkSeconds: 2,
     villagers: 14,
-    army: 16,
-    firstAttack: 6,
+    army: 12,
+    firstAttack: 5,
     attackGrowth: 2,
-    barracksAt: 10,
-    rangeAt: 13,
+    patience: 540,
+    barracksAt: 12,
+    rangeAt: 14,
     stableAt: 99,
     counters: false,
     towers: 0,
@@ -86,6 +89,7 @@ const TUNING: Record<Difficulty, Tuning> = {
     army: 40,
     firstAttack: 8,
     attackGrowth: 4,
+    patience: 300,
     barracksAt: 8,
     rangeAt: 12,
     stableAt: 15,
@@ -99,6 +103,7 @@ const TUNING: Record<Difficulty, Tuning> = {
     army: 70,
     firstAttack: 12,
     attackGrowth: 6,
+    patience: 0,
     barracksAt: 7,
     rangeAt: 10,
     stableAt: 13,
@@ -796,7 +801,7 @@ export class SkirmishAi implements Controller {
     // Whoever is not out on an attack waits at the mustering place.
     const marching = this.mode === 'attack' ? army.filter((slot) => this.wave.has(world.idAt(slot))) : [];
     const reserve = this.mode === 'attack' ? army.filter((slot) => !this.wave.has(world.idAt(slot))) : army;
-    if (this.mode === 'gather' && army.length >= this.waveSize) {
+    if (this.mode === 'gather' && army.length >= this.waveSize && world.tick >= this.tuning.patience * world.config.tickRate) {
       // Enough of them: everyone goes.
       this.mode = 'attack';
       this.waveStart = army.length;

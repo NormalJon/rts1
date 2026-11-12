@@ -1,16 +1,16 @@
 # Medieval RTS (working title)
 
 A historical real-time strategy game covering roughly 800–1600 CE. This
-repository holds the first six steps of the core build: the deterministic
+repository holds the first seven steps of the core build: the deterministic
 simulation loop; maps, pathfinding and unit movement with a 3D view to play
 it in; resources and gathering; buildings, training and population; combat
-and the counter triangle; then fog of war.
+and the counter triangle; fog of war; then a skirmish AI to play against.
 
 ## Commands
 
 ```bash
 npm install
-npm test               # maths, maps, pathfinding, movement, economy, buildings, combat, vision, determinism, source rules
+npm test               # maths, maps, pathfinding, movement, economy, buildings, combat, vision, the AI, determinism, source rules
 npm run typecheck
 npm run dev            # pages at http://localhost:5173
 npm run build          # writes dist/playtest.html and dist/tick-rate-lab.html
@@ -22,7 +22,8 @@ npm run check:browser  # reference match must give the same checksum in a browse
 | Path | What it is |
 |---|---|
 | `src/sim/` | The simulation. Pure, deterministic, no browser or clock access. |
-| `src/session/` | Running a match: turning real time into ticks, stamping and recording commands. |
+| `src/session/` | Running a match: turning real time into ticks, stamping and recording commands, asking controllers for theirs. |
+| `src/ai/` | The skirmish AI: a computer player that issues commands like anyone else. |
 | `src/client/game/` | The 3D playtest: view, camera, selection and orders, minimap. |
 | `src/client/` | The Tick Rate Lab debug page. |
 | `test/` | Vitest suites. `helpers.ts` plays randomised matches for the determinism tests. |
@@ -58,6 +59,10 @@ npm run check:browser  # reference match must give the same checksum in a browse
   round trip between a resource and the nearest drop-off
   (`src/sim/economy.ts`). Nothing is created or lost on the way; the tests
   check that on every tick.
+- **Farms.** Berries run out; farms do not. A farm is a building until it is
+  finished and tilled ground after: it can be walked over, one villager at a
+  time works it from the middle, and what they gather is counted as grown
+  (`world.grown`) so the books still balance.
 - **A map that changes.** Felled trees and buildings alter what can be walked
   on. `GameMap` keeps passability, connected regions and a running state
   checksum up to date change by change, and a route search in progress starts
@@ -113,6 +118,33 @@ npm run check:browser  # reference match must give the same checksum in a browse
   believes: terrain and enemy buildings stay drawn as last seen until someone
   looks again.
 
+## The skirmish AI
+
+`src/ai/skirmish.ts`. The AI is a player, not part of the simulation.
+`LocalSession.control(player, controller)` hands it a side; before each tick
+the session asks it for commands and issues and records them like a person's,
+so a replay plays back without it and multiplayer need not know it exists.
+
+It plays fair: no extra resources, and no seeing through the fog. Of the enemy
+it knows what its side can see now and the buildings it remembers seeing. The
+tests wrap it and check every order against what it could have known. It is
+given only where towns can start on the map.
+
+Every second or so it looks at the world and, in order: trains villagers and
+builds houses ahead of need; shares villagers between food, wood and a little
+stone; plants farms before the berries give out and puts lumber camps by the
+trees; builds a barracks, archery range, stable and tower, saving wood for
+each; keeps them training, leaning toward what beats the enemy soldiers it
+has seen; scouts; comes home to fight raiders; and attacks in waves that go
+from one known building to the next, falling back when two in three are lost
+and returning with more. `easy`, `standard` and `hard` differ in how often it
+thinks, how big it grows, how soon and how hard it attacks, and whether it
+counters what it sees. Nothing in it is random, so a match between two AIs
+plays out the same way every time.
+
+Its plans live outside the world, so they are not in a saved game: after
+loading, it picks up from what it can see and has to scout again.
+
 ## Rules for code in `src/sim`
 
 `test/determinism-lint.test.ts` enforces these by reading the source:
@@ -127,9 +159,11 @@ npm run check:browser  # reference match must give the same checksum in a browse
 
 ## Not in yet
 
-Walls, gates and siege engines; garrisoning; an AI (the playtest's red side
-follows a short script in `src/client/game/main.ts`); ages and technology.
-Mending a building is free. Formations march as a block but do not keep ranks
+Walls, gates and siege engines; garrisoning; ages and technology; victory
+conditions in the simulation (the playtest calls the match when a town centre
+falls). Mending a building is free. Gold has nothing to be spent on yet.
+Evenly matched AIs tend to stalemate: without siege, a defended town is hard
+to break. Formations march as a block but do not keep ranks
 on the way. Nothing blocks sight: units see over trees and hills alike, and
 high ground does not see further.
 

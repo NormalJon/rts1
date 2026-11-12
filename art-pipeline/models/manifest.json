@@ -390,6 +390,36 @@
     }
   },
   {
+    "id": "farm",
+    "group": "buildings",
+    "label": "Farm",
+    "note": "Open-field strips: ridge and furrow under young wheat, two ridges fallow, a scarecrow in the corner. Worked for food, and low enough to walk across. 3 by 3 tile plot.",
+    "file": "models/farm.glb",
+    "triangles": 254,
+    "bytes": 23176,
+    "bounds": {
+      "min": [
+        -2.82,
+        0,
+        -2.82
+      ],
+      "max": [
+        2.82,
+        1.59,
+        2.82
+      ]
+    },
+    "plot": 3,
+    "yaw": 0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
     "id": "mining-camp",
     "group": "buildings",
     "label": "Mining camp",

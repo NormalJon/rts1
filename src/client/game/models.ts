@@ -191,20 +191,21 @@ export async function loadModels(): Promise<Models> {
       loadStatic('gold-deposit', () => standIn('#c9a227', 1.7, 1.2)),
     ]);
   // Until a soldier has a model of his own he is drawn as a spearman.
-  const [archer, horseman, archeryRange, stable, watchtower] = await Promise.all([
+  const [archer, horseman, archeryRange, stable, watchtower, farm] = await Promise.all([
     has('archer') ? loadUnit('archer', ['idle', 'walk', 'attack']) : spearman,
     has('horseman') ? loadUnit('horseman', ['idle', 'walk', 'attack']) : spearman,
     loadStatic('archery-range', () => standIn('#9a7a4a', 9, 2.6, true)),
     loadStatic('stable', () => standIn('#6f5a3f', 9, 3, true)),
     loadStatic('watchtower', () => standIn('#8c8a84', 3.4, 8, true)),
+    loadStatic('farm', () => standIn('#7b6a45', 5.6, 0.12)),
   ]);
   // Both lists are in the order of the simulation's ENTITY_TYPES: spearman,
   // villager, town centre, house, mill, lumber camp, mining camp, barracks,
-  // archer, horseman, archery range, stable, watchtower.
+  // archer, horseman, archery range, stable, watchtower, farm.
   const none = undefined;
   return {
     units: [spearman, villager, none, none, none, none, none, none, archer, horseman],
-    buildings: [none, none, hall, house, mill, lumberCamp, miningCamp, barracks, none, none, archeryRange, stable, watchtower],
+    buildings: [none, none, hall, house, mill, lumberCamp, miningCamp, barracks, none, none, archeryRange, stable, watchtower, farm],
     oak,
     conifer,
     berries,

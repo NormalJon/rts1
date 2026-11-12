@@ -10,12 +10,14 @@ import { canPlace } from '../../sim/buildings';
 import {
   buildPointsNeeded,
   ENTITY_TYPES,
+  Kind,
   RESOURCE_NAMES,
   resourceOfTerrain,
   Tag,
   TRAIN_QUEUE_LENGTH,
   trainingTicks,
 } from '../../sim/entityTypes';
+import { Terrain } from '../../sim/map';
 import { countPopulation } from '../../sim/production';
 import { fromFloat } from '../../sim/units';
 import { entityIndex, Job, MoveState, OrderKind, type EntityId } from '../../sim/world';
@@ -28,7 +30,19 @@ const DOUBLE_CLICK_MS = 320;
 const PAN_PER_SECOND = 1.5;
 const TOAST_MS = 2400;
 /** The keys for the buttons in the action row, left to right. */
-const ACTION_KEYS = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i'];
+const ACTION_KEYS = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o'];
+/** The order buildings are offered in: what a town needs first, first. Anything not listed follows. */
+const BUILD_ORDER: readonly number[] = [
+  Kind.House,
+  Kind.Farm,
+  Kind.Mill,
+  Kind.LumberCamp,
+  Kind.MiningCamp,
+  Kind.Barracks,
+  Kind.ArcheryRange,
+  Kind.Stable,
+  Kind.Watchtower,
+];
 /** How far from the middle of the view something must be hit before the player is told, in tiles. */
 const ALARM_DISTANCE = 22;
 const ALARM_EVERY_MS = 12000;
@@ -487,6 +501,11 @@ export class Controls {
       if (!mine && world.hostile(this.player, world.owner[slot]!)) {
         this.session.issue(this.player, { kind: 'attack', units, target: target.id });
         this.view.addMarker(spot.x, spot.y, 'attack');
+      } else if (mine && type.farm && world.built[slot] === 1 && !damaged) {
+        // A farm: work it. The crop is gathered from its middle tile.
+        const middle = (world.posY[slot]! >> 16) * world.map.width + (world.posX[slot]! >> 16);
+        this.session.issue(this.player, { kind: 'gather', units, tile: middle });
+        this.view.addMarker(spot.x, spot.y, 'work');
       } else if (mine && (world.built[slot] === 0 || (damaged && this.buildersSelected() && !this.carrying(type.accepts)))) {
         // Finish it, or mend it.
         this.session.issue(this.player, { kind: 'construct', units, target: target.id });
@@ -618,11 +637,19 @@ export class Controls {
       return list;
     }
     if (this.buildersSelected()) {
-      return ENTITY_TYPES.flatMap((type, entityType) =>
-        type.building && type.buildable
-          ? [{ label: capital(type.name), detail: costText(type.cost), cost: type.cost, run: () => this.startPlacing(entityType) }]
-          : [],
-      );
+      const rank = (entityType: number): number => {
+        const at = BUILD_ORDER.indexOf(entityType);
+        return at === -1 ? BUILD_ORDER.length + entityType : at;
+      };
+      return ENTITY_TYPES.map((type, entityType) => ({ type, entityType }))
+        .filter(({ type }) => type.building && type.buildable)
+        .sort((a, b) => rank(a.entityType) - rank(b.entityType))
+        .map(({ type, entityType }) => ({
+          label: capital(type.name),
+          detail: costText(type.cost),
+          cost: type.cost as readonly number[] | null,
+          run: () => this.startPlacing(entityType),
+        }));
     }
     return [];
   }
@@ -919,7 +946,7 @@ export class Controls {
         const done = world.buildPoints[slot]! / buildPointsNeeded(world.entityType[slot]!, world.config.tickRate);
         return `${name} · ${Math.floor(done * 100)}% built · ${health}`;
       }
-      const arrows = type.damage > 0 ? ` · shoots for ${type.damage}, ${type.range / 65536} tiles` : '';
+      const arrows = type.damage > 0 ? ` · shoots for ${type.damage}, ${type.range / 65536} tiles` : type.farm ? ' · one villager farms it, and the food never runs out' : '';
       const mend = world.hp[slot]! < type.hp ? ' · right-click it with villagers to mend' : '';
       return `${name} · ${health}${arrows}${mend}`;
     }
@@ -952,7 +979,7 @@ export class Controls {
         let doing = 'Idle';
         if (job === Job.ToDropOff) doing = 'Carrying a load home';
         else if (job === Job.ToResource || job === Job.Harvesting) {
-          doing = RESOURCE_VERBS[resourceOfTerrain(world.jobTerrain[slot]!)] ?? 'Working';
+          doing = world.jobTerrain[slot] === Terrain.Field ? 'Farming' : (RESOURCE_VERBS[resourceOfTerrain(world.jobTerrain[slot]!)] ?? 'Working');
         } else if (job === Job.ToSite || job === Job.Constructing) doing = 'Building';
         if (world.carry[slot]! > 0) doing += ` · carrying ${world.carry[slot]}`;
         text += ` — ${doing}`;

@@ -57,4 +57,6 @@ export const C = {
   dun: '#b79c6c',
   hoof: '#2a2521',
   water: '#5d7f8c',
+  stubble: '#9c8a5e',
+  wheatYoung: '#8aa24e',
 };

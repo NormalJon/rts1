@@ -12,6 +12,7 @@ import { build as archeryRange } from './models/archery-range.mjs';
 import { build as stable } from './models/stable.mjs';
 import { build as lumberCamp } from './models/lumber-camp.mjs';
 import { build as mill } from './models/mill.mjs';
+import { build as farm } from './models/farm.mjs';
 import { build as miningCamp } from './models/mining-camp.mjs';
 import { build as keep } from './models/keep.mjs';
 import { buildWall, buildGate } from './models/palisade.mjs';
@@ -33,7 +34,7 @@ mkdirSync(out, { recursive: true });
 
 const GROUPS = [
   { key: 'units', title: 'Units', blurb: 'Rigid parts on a joint hierarchy, animated by rotating the joints. Nothing bends: there is no skinning.', builders: [spearman, archer, horseman, villager] },
-  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, hall, barracks, archeryRange, stable, lumberCamp, mill, miningCamp, keep, watchtower, buildGate, buildWall, trebuchet] },
+  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, hall, barracks, archeryRange, stable, lumberCamp, mill, farm, miningCamp, keep, watchtower, buildGate, buildWall, trebuchet] },
   { key: 'nature', title: 'Trees', blurb: 'Neutral map objects, so they carry no team colour.', builders: [buildOak, buildConifer] },
   { key: 'resources', title: 'Resources', blurb: 'What villagers gather. Each fits one 2 m tile and carries no team colour.', builders: [berryBush, buildStone, buildGold] },
 ];

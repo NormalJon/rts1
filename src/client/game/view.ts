@@ -35,6 +35,7 @@ const TERRAIN_COLOURS: Record<number, string> = {
   [Terrain.Berries]: '#6f8c50',
   [Terrain.Stone]: '#8f8a78',
   [Terrain.Gold]: '#8d8263',
+  [Terrain.Field]: '#8a7a4e',
 };
 
 /** How tall the thing standing on each kind of resource tile is, in metres, for clicking on it. */
@@ -147,7 +148,7 @@ export class GameView {
   onTileChanged: ((tile: number) => void) | null = null;
 
   /** A testing aid: draw everything, as if there were no fog. The simulation's rules are unchanged. */
-  revealAll = false;
+  private revealAll = false;
   /** The player through whose eyes the match is shown. */
   readonly viewer: number;
   /** How bright each tile is drawn just now, easing toward what the viewer's side sees. */
@@ -763,6 +764,25 @@ export class GameView {
     }
   }
 
+  /** Whether everything is being drawn regardless of the fog. */
+  get fogLifted(): boolean {
+    return this.revealAll;
+  }
+
+  /**
+   * Lifts the fog for a look round, or lets it fall again. When it falls,
+   * whatever was seen only because it was lifted is forgotten.
+   */
+  liftFog(lifted: boolean): void {
+    this.revealAll = lifted;
+    if (lifted) return;
+    for (const shown of [...this.buildings.values()]) {
+      if (this.onViewersSide(shown.owner) || this.knowsTile(shown.tileY * this.world.map.width + shown.tileX)) continue;
+      this.scene.remove(shown.group);
+      this.forget(shown);
+    }
+  }
+
   /** Every building the player knows of, in sight or remembered. */
   knownBuildings(): IterableIterator<ShownBuilding> {
     return this.buildings.values();
@@ -1292,10 +1312,15 @@ export class GameView {
       // What the player believes is there: the terrain as last seen, and buildings known of.
       if (!this.knowsTile(tile)) return null;
       const terrain = this.seenTerrain[tile]!;
-      if (resourceOfTerrain(terrain) !== -1 && lift <= (PROP_HEIGHT[terrain] ?? 0)) return { kind: 'tile', tile };
-      if (lift <= BUILDING_HEIGHT) {
-        const id = this.buildingOn(tile);
-        if (id !== null) return { kind: 'building', id };
+      // A farm is clicked as a building, not as nine tiles of crop.
+      if (terrain !== Terrain.Field && resourceOfTerrain(terrain) !== -1 && lift <= (PROP_HEIGHT[terrain] ?? 0)) {
+        return { kind: 'tile', tile };
+      }
+      const id = this.buildingOn(tile);
+      if (id !== null) {
+        // A farm lies flat: only a click on the ground it covers is a click on it.
+        const flat = ENTITY_TYPES[this.buildings.get(id)!.entityType]!.farm;
+        if (lift <= (flat ? 0.5 : BUILDING_HEIGHT)) return { kind: 'building', id };
       }
       return null;
     };

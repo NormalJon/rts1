@@ -19,6 +19,7 @@ const TERRAIN_RGB: Record<number, [number, number, number]> = {
   [Terrain.Berries]: [150, 72, 96],
   [Terrain.Stone]: [196, 194, 186],
   [Terrain.Gold]: [226, 186, 60],
+  [Terrain.Field]: [158, 138, 84],
 };
 
 const PING_MS = 3600;
@@ -139,6 +140,8 @@ export class Minimap {
     const dot = Math.max(2, Math.round(ratio * 2));
     // Buildings the player knows of, in sight or remembered, as squares the size of their footprint.
     for (const building of this.view.knownBuildings()) {
+      // Farms show as the ground they are, not as blocks.
+      if (ENTITY_TYPES[building.entityType]!.farm) continue;
       const side = Math.max(dot * 2, ENTITY_TYPES[building.entityType]!.footprint * sx);
       ctx.fillStyle = TEAM_COLOURS[building.owner % TEAM_COLOURS.length]!;
       ctx.fillRect(

@@ -52,7 +52,13 @@
   .stores dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .stores dd { margin: 0; font-family: var(--font-data); font-size: 14px; font-variant-numeric: tabular-nums; min-width: 3ch; }
 
-  .tools { grid-area: tools; display: flex; gap: 8px; align-self: start; justify-self: end; }
+  .tools { grid-area: tools; display: flex; gap: 8px; align-self: start; justify-self: end; flex-wrap: wrap; justify-content: flex-end; }
+  .title-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .level { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--panel-line); border-radius: 5px; padding: 0 2px 0 8px; }
+  .level select { font: 500 12.5px var(--font-body); color: var(--ink); background: transparent; border: 0; padding: 3px 2px; cursor: pointer; }
+  .level select option { color: #111; }
+  .level:focus-within { outline: 2px solid var(--woad); outline-offset: 2px; }
+  .level select:focus { outline: none; }
   button {
     font: 500 13px var(--font-body); color: var(--ink); background: var(--panel);
     border: 1px solid var(--panel-line); border-radius: 6px; padding: 7px 12px; cursor: pointer;
@@ -110,6 +116,11 @@
     #minimap { width: 104px; height: 104px; }
     .bar { justify-self: stretch; align-items: stretch; min-width: 0; }
     .command { padding-left: 10px; min-width: 0; }
+    .title { grid-row: auto; }
+    .title-row { flex-direction: column; align-items: flex-start; gap: 5px; }
+    .tools { flex-wrap: nowrap; }
+    .tools button { white-space: nowrap; }
+    #btn-fog { display: none; } /* a testing aid; there is no room for it here */
     .command-head { flex-wrap: wrap; gap: 6px; }
     #orders { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
     #orders button { padding: 6px 8px; font-size: 12.5px; }
@@ -125,7 +136,16 @@
   <div class="hud">
     <div class="title">
       <div class="panel title-card">
-        <h1>Playtest<span class="wide"> · fog of war</span></h1>
+        <div class="title-row">
+          <h1>Playtest<span class="wide"> · skirmish</span></h1>
+          <label class="level">Opponent
+            <select id="level" title="How strong the red side plays. Changing it starts a new match.">
+              <option value="easy">Easy</option>
+              <option value="standard">Standard</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
+        </div>
         <div id="stats">starting…</div>
       </div>
       <div id="production" aria-label="In training" hidden></div>
@@ -156,7 +176,7 @@
         <dt>A, click</dt><dd>Attack-move: march there, fighting whatever they meet</dd>
         <dt>P, click</dt><dd>Patrol between here and there</dd>
         <dt>H &nbsp;S</dt><dd>Hold ground (never give chase) · Stop</dd>
-        <dt>Q W E R…</dt><dd>With villagers: choose a building, then click where it goes. With a building: train a unit</dd>
+        <dt>Q W E R…</dt><dd>With villagers: choose a building (W is a farm), then click where it goes. With a building: train a unit</dd>
         <dt>F</dt><dd>Look at the last place you were attacked</dd>
         <dt>del</dt><dd>Pull down the selected building</dd>
         <dt>.</dt><dd>Jump to the next idle villager</dd>
@@ -169,7 +189,7 @@
       </dl>
       <p><b>Spearmen</b> stop horsemen, <b>horsemen</b> ride down archers, <b>archers</b> shoot spearmen before they close. Soldiers left alone guard where they stand; a plain move ignores the enemy.</p>
       <p>You see only what your people see. Ground you have left stays on the map as you last saw it; ground you have never seen is dark, and nothing can be built there. <b>Lift fog</b> shows everything, for testing.</p>
-      <p>You lead the blue side, in the north-west. Red has no general yet: its villagers work, its guards and town centre defend, and a raiding party sets out for your town every minute and a half from the third minute, a little larger each time. Pull down its town centre to win.</p>
+      <p>You lead the blue side, in the north-west. The computer leads red: it builds a town, scouts you out, and attacks when it has the soldiers, with more each time. It plays by your rules, fog and all. Pick how hard it plays with <b>Opponent</b>. When the berries run out, build <b>farms</b>: one villager works each, and the food never ends. Pull down the red town centre to win.</p>
     </aside>
 
     <div class="map panel"><canvas id="minimap" aria-label="Map. Click to move the view; right-click to send the selection."></canvas></div>
