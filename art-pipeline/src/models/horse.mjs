@@ -20,6 +20,7 @@ export const JOINT = {
 export const COATS = {
   bay: { coat: C.bay, points: C.bayDark },
   dun: { coat: C.dun, points: C.bayDark },
+  black: { coat: C.horseBlack, points: C.hoof },
 };
 
 /** Barrel and quarters, six-sided with a flat along the back. */
@@ -29,12 +30,25 @@ export function paintBody(m, { coat }) {
   m.at(T(0, 0, -0.25), RX(Math.PI / 2), S(1, 1, 1.1), () => m.cyl(0.275, 0.235, 0.75, 6, { bottom: false }));
 }
 
-/** Saddle on a cloth in the owner's colour. */
-export function paintSaddle(m) {
-  m.team().at(T(0, 0.05, -0.12), () => m.box(0.62, 0.225, 0.74, { bottom: false }));
+/** Saddle, on a cloth in the owner's colour unless `cloth` is false. */
+export function paintSaddle(m, { cloth = true } = {}) {
+  if (cloth) m.team().at(T(0, 0.05, -0.12), () => m.box(0.62, 0.225, 0.74, { bottom: false }));
   m.color(C.leather, 0.05).at(T(0, 0.275, -0.04), () => m.box(0.36, 0.075, 0.46, { bottom: false }));
   m.at(T(0, 0.33, -0.25), () => m.box(0.34, 0.12, 0.07, { bottom: false })); // cantle
   m.at(T(0, 0.33, 0.17), () => m.box(0.22, 0.1, 0.07, { bottom: false })); // pommel
+}
+
+/**
+ * Caparison: the cloth housing of a knight's horse in the owner's colour, in two halves that
+ * hang to the knees before and behind the saddle, each with a pale hem, and a cover on the
+ * neck. `body` and `neck` are the builders of those two parts.
+ */
+export function paintCaparison(body, neck) {
+  for (const [z, depth] of [[0.31, 0.7], [-0.56, 0.74]]) {
+    body.team().at(T(0, -0.48, z), () => body.frustum(0.8, depth + 0.06, 0.62, depth - 0.04, 0.78, { bottom: false }));
+    body.color(C.linen, 0.05).at(T(0, -0.56, z), () => body.frustum(0.83, depth + 0.09, 0.81, depth + 0.07, 0.08, { top: false, bottom: false }));
+  }
+  neck.team().at(RX(0.75), T(0, -0.12, 0.015), () => neck.frustum(0.35, 0.5, 0.26, 0.33, 0.62, { bottom: false }));
 }
 
 export function paintNeck(m, { coat, points }) {

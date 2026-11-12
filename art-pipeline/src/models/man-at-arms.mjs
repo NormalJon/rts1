@@ -1,6 +1,7 @@
 // Man-at-arms, c. 1200: the heavy foot soldier of the High Middle Ages. Mail from head to
 // foot, a flat-topped great helm that closes the face, a heater shield in the owner's colour
-// and an arming sword; no spear. Darker and broader than the spearman, and all metal.
+// and an arming sword; no spear. Darker and broader than the spearman, and all metal but for
+// the shield, the hem of his coat and the painted crown of the helm.
 // The figure is the spearman's rig, with the same ten parts.
 import { T, RX, RY } from '../math.mjs';
 import { C } from '../palette.mjs';
@@ -15,11 +16,11 @@ export function build() {
     itemR: { name: 'sword', translation: [0, -0.3, 0.29] },
   });
 
-  // Hips: the hauberk's skirt to the knee with the padded coat's hem showing under it, a
-  // sword belt and the scabbard at the left hip.
+  // Hips: the hauberk's skirt to the knee, the hem of the coat under it showing in the owner's
+  // colour, a sword belt and the scabbard at the left hip.
   const hips = rig.hips.mb;
   hips.color(C.mailDark, 0.06).at(T(0, -0.5, 0), () => hips.frustum(0.6, 0.45, 0.47, 0.33, 0.56));
-  hips.color(C.sack, 0.06).at(T(0, -0.56, 0), () => hips.frustum(0.57, 0.42, 0.57, 0.42, 0.07, { top: false }));
+  hips.team().at(T(0, -0.58, 0), () => hips.frustum(0.58, 0.43, 0.58, 0.43, 0.09, { top: false }));
   hips.color(C.leather, 0.04).at(T(0, -0.02, 0), () => hips.box(0.5, 0.08, 0.36));
   hips.color(C.leather, 0.05).beam([0.27, -0.04, 0.06], [0.33, -0.6, -0.22], 0.05, 0.07);
 

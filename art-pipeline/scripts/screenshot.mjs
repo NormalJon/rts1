@@ -1,7 +1,7 @@
 // Renders sample-sheet.html in headless Chromium and saves screenshots for review.
 // The page is wrapped the way the publisher wraps it; CDN scripts are served from node_modules.
 //   node scripts/screenshot.mjs                    everything
-//   node scripts/screenshot.mjs scene              one section: pages, closeups, icons, scene, village, units, farms
+//   node scripts/screenshot.mjs scene              one section: pages, closeups, icons, scene, village, units, soldiers, farms, blacksmith
 //   node scripts/screenshot.mjs view <id> <yaw> <pitch> [name]    one card from one angle
 //   node scripts/screenshot.mjs review [id ...]    each building on its plot from four sides
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
@@ -285,7 +285,7 @@ if (only.length === 0 || only.some((n) => n.startsWith('model') || n === 'closeu
   // The RTS view: the same models from a high camera.
   for (const id of ids) await page.evaluate((i) => window.__sheet.view(i, 0.6, 0.95), id);
   await settle(page);
-  for (const id of ['house', 'hall', 'barracks', 'archery-range', 'stable', 'lumber-camp', 'mill', 'farm', 'mining-camp', 'keep', 'watchtower', 'spearman', 'archer', 'horseman', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
+  for (const id of ['house', 'hall', 'barracks', 'archery-range', 'stable', 'lumber-camp', 'mill', 'farm', 'mining-camp', 'blacksmith', 'keep', 'watchtower', 'spearman', 'man-at-arms', 'archer', 'crossbowman', 'handgunner', 'horseman', 'knight', 'trebuchet', 'berry-bush', 'stone-deposit', 'gold-deposit']) {
     await cardShot(page, id, `model-${id}-high`);
   }
   // Buildings square on from the front, which is how the game camera meets an unturned building.
@@ -301,6 +301,10 @@ if (only.length === 0 || only.some((n) => n.startsWith('model') || n === 'closeu
     ['villager', 'walk', 0.22], ['villager', 'chop', 0.36], ['villager', 'chop', 0.56],
     ['archer', 'walk', 0.22], ['archer', 'attack', 0.3], ['archer', 'attack', 0.45], ['archer', 'attack', 1.25],
     ['horseman', 'walk', 0.1], ['horseman', 'walk', 0.35], ['horseman', 'attack', 0.22],
+    ['man-at-arms', 'walk', 0.22], ['man-at-arms', 'attack', 0.4],
+    ['knight', 'walk', 0.1], ['knight', 'attack', 0.2],
+    ['crossbowman', 'walk', 0.22], ['crossbowman', 'attack', 0.5], ['crossbowman', 'attack', 1.15],
+    ['handgunner', 'walk', 0.22], ['handgunner', 'attack', 0.7], ['handgunner', 'attack', 0.9], ['handgunner', 'attack', 2.0],
   ];
   for (const unit of units) {
     for (const [clip, { hit }] of Object.entries(unit.timing)) if (hit !== undefined) poses.push([unit.id, clip, hit]);
@@ -372,6 +376,42 @@ if (want('scene') || want('units') || only.length === 0) {
   const second = await openScene(camp, buildings.map(({ id, x, z }) => plotOutlines(id, x, z)[0]));
   await second.shot('scene-military', [{ x: 0.5, z: -2, distance: 54 }]);
   await second.close();
+}
+
+// Every soldier of every age together from the game camera: the five on foot in a row at
+// rest and again in mid-stride or mid-blow, then horseman and knight, with some in red, so
+// that all seven can be told apart at a glance.
+if (want('scene') || want('soldiers') || only.length === 0) {
+  const hit = (id) => manifest.find((m) => m.id === id).timing.attack.hit;
+  const foot = ['spearman', 'man-at-arms', 'archer', 'crossbowman', 'handgunner'];
+  const items = [];
+  foot.forEach((id, i) => {
+    const x = -6.4 + i * 3.2;
+    items.push({ id, x: x - 0.6, z: -5, rot: 0.25 }, { id, x: x + 0.7, z: -4.6, rot: -0.4, clip: 'walk', time: 0.22 });
+    items.push({ id, x: x - 0.5, z: -1.4, rot: 0.5, clip: 'attack', time: hit(id) }, { id, x: x + 0.8, z: -1.1, rot: 2.7, team: '#b3312c' });
+  });
+  [['horseman', -6.2], ['knight', 0.4]].forEach(([id, x]) => {
+    items.push({ id, x, z: 3.2, rot: 0.5 }, { id, x: x + 3, z: 3.4, rot: -0.9, clip: 'walk', time: 0.1 });
+    items.push({ id, x: x + 1.2, z: 7.2, rot: 2.7, team: '#b3312c' }, { id, x: x + 4.2, z: 7, rot: 1.3, team: '#b3312c', clip: 'attack', time: hit(id) });
+  });
+  const scene = await openScene(items);
+  await scene.shot('scene-soldiers', [{ x: 0, z: 1.2, distance: 30 }]);
+  await scene.shot('scene-soldiers-game-zoom', [{ x: 0, z: 1.2, distance: 47 }]);
+  await scene.close();
+}
+
+// The blacksmith among its neighbours on 3 x 3 plots: the house and the mill, and the two
+// camps, from the game camera.
+if (want('scene') || want('blacksmith') || only.length === 0) {
+  const buildings = [
+    { id: 'house', x: -6, z: 0 }, { id: 'blacksmith', x: 0, z: 0 }, { id: 'mill', x: 6, z: 0 },
+    { id: 'lumber-camp', x: -6, z: -8 }, { id: 'mining-camp', x: 6, z: -8 },
+  ];
+  const items = [...buildings, { id: 'villager', x: 0.9, z: 1.7, rot: 2.6 }, { id: 'villager', x: -3.1, z: 3.6, rot: 0.8 }, { id: 'man-at-arms', x: 3.2, z: 3.9, rot: -0.5 }];
+  const scene = await openScene(items, buildings.map(({ id, x, z }) => plotOutlines(id, x, z)[0]));
+  await scene.shot('scene-blacksmith', [{ x: 0, z: -0.5, distance: 27 }]);
+  await scene.shot('scene-blacksmith-game-zoom', [{ x: 0, z: -3, distance: 47 }]);
+  await scene.close();
 }
 
 // Farms in bulk: four side by side in a block next to the mill and a house, with a villager

@@ -50,8 +50,8 @@
     "label": "Man-at-arms",
     "note": "Heavy foot of c. 1200: mail to the feet, a flat-topped great helm, heater shield and arming sword. The cut lands at 0.5 s.",
     "file": "models/man-at-arms.glb",
-    "triangles": 364,
-    "bytes": 54260,
+    "triangles": 404,
+    "bytes": 58000,
     "bounds": {
       "min": [
         -0.38,
@@ -135,6 +135,96 @@
     }
   },
   {
+    "id": "crossbowman",
+    "group": "units",
+    "label": "Crossbowman",
+    "note": "Kettle hat, padded jack, a pavise on the back and the crossbow held level. He looses at 0.6 s, then stoops with a foot in the stirrup to span it again.",
+    "file": "models/crossbowman.glb",
+    "triangles": 407,
+    "bytes": 63856,
+    "bounds": {
+      "min": [
+        -0.412,
+        0,
+        -0.347
+      ],
+      "max": [
+        0.412,
+        1.915,
+        0.855
+      ]
+    },
+    "yaw": 0.55,
+    "clips": [
+      "idle",
+      "walk",
+      "attack"
+    ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.9
+      },
+      "attack": {
+        "duration": 2.2,
+        "hit": 0.6
+      }
+    },
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "handgunner",
+    "group": "units",
+    "label": "Handgunner",
+    "note": "Hook gun of c. 1480 carried across the chest, soft cap, dark doublet, sleeves and one leg of the hose in the owner's colour. He fires at 0.8 s with a puff of smoke, then reloads.",
+    "file": "models/handgunner.glb",
+    "triangles": 402,
+    "bytes": 68988,
+    "bounds": {
+      "min": [
+        -0.437,
+        0,
+        -0.333
+      ],
+      "max": [
+        0.411,
+        2.054,
+        0.396
+      ]
+    },
+    "yaw": 0.55,
+    "clips": [
+      "idle",
+      "walk",
+      "attack"
+    ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.9
+      },
+      "attack": {
+        "duration": 3.4,
+        "hit": 0.8
+      }
+    },
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
     "id": "horseman",
     "group": "units",
     "label": "Horseman",
@@ -166,6 +256,51 @@
       },
       "walk": {
         "duration": 0.5
+      },
+      "attack": {
+        "duration": 1.6,
+        "hit": 0.4
+      }
+    },
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "knight",
+    "group": "units",
+    "label": "Knight",
+    "note": "Heavy horse of c. 1250: great helm, surcoat over mail, heater shield and couched lance, on a destrier in a caparison of the owner's colour. The canter covers 2.35 m a loop.",
+    "file": "models/knight.glb",
+    "triangles": 634,
+    "bytes": 98760,
+    "bounds": {
+      "min": [
+        -0.415,
+        0.016,
+        -1.175
+      ],
+      "max": [
+        0.619,
+        3.17,
+        1.345
+      ]
+    },
+    "yaw": -0.7,
+    "clips": [
+      "idle",
+      "walk",
+      "attack"
+    ],
+    "timing": {
+      "idle": {
+        "duration": 3.2
+      },
+      "walk": {
+        "duration": 0.5333
       },
       "attack": {
         "duration": 1.6,
@@ -482,6 +617,36 @@
         2.72,
         3,
         2.72
+      ]
+    },
+    "plot": 3,
+    "yaw": 0.5,
+    "clips": [],
+    "validator": {
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "hints": 0
+    }
+  },
+  {
+    "id": "blacksmith",
+    "group": "buildings",
+    "label": "Blacksmith",
+    "note": "A forge: stone hearth and chimney with a charcoal fire, bellows under a shingled shed, the anvil, a quench trough and a rack of blades in front. 3 by 3 tile plot.",
+    "file": "models/blacksmith.glb",
+    "triangles": 839,
+    "bytes": 67876,
+    "bounds": {
+      "min": [
+        -2.81,
+        0,
+        -2.74
+      ],
+      "max": [
+        2.72,
+        4.125,
+        2.743
       ]
     },
     "plot": 3,

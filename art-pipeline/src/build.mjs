@@ -13,6 +13,7 @@ import { build as stable } from './models/stable.mjs';
 import { build as lumberCamp } from './models/lumber-camp.mjs';
 import { build as mill } from './models/mill.mjs';
 import { build as farm } from './models/farm.mjs';
+import { build as blacksmith } from './models/blacksmith.mjs';
 import { build as miningCamp } from './models/mining-camp.mjs';
 import { build as keep } from './models/keep.mjs';
 import { buildWall, buildGate } from './models/palisade.mjs';
@@ -23,7 +24,10 @@ import { build as spearman } from './models/spearman.mjs';
 import { build as villager } from './models/villager.mjs';
 import { build as archer } from './models/archer.mjs';
 import { build as manAtArms } from './models/man-at-arms.mjs';
+import { build as crossbowman } from './models/crossbowman.mjs';
+import { build as handgunner } from './models/handgunner.mjs';
 import { build as horseman } from './models/horseman.mjs';
+import { build as knight } from './models/knight.mjs';
 import { build as berryBush } from './models/bush.mjs';
 import { buildStone, buildGold } from './models/deposits.mjs';
 
@@ -34,8 +38,8 @@ const out = join(root, 'models');
 mkdirSync(out, { recursive: true });
 
 const GROUPS = [
-  { key: 'units', title: 'Units', blurb: 'Rigid parts on a joint hierarchy, animated by rotating the joints. Nothing bends: there is no skinning.', builders: [spearman, manAtArms, archer, horseman, villager] },
-  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, hall, barracks, archeryRange, stable, lumberCamp, mill, farm, miningCamp, keep, watchtower, buildGate, buildWall, trebuchet] },
+  { key: 'units', title: 'Units', blurb: 'Rigid parts on a joint hierarchy, animated by rotating the joints. Nothing bends: there is no skinning.', builders: [spearman, manAtArms, archer, crossbowman, handgunner, horseman, knight, villager] },
+  { key: 'buildings', title: 'Buildings and siege', blurb: 'Hard-surface work is where generated geometry holds up best.', builders: [house, hall, barracks, archeryRange, stable, lumberCamp, mill, farm, miningCamp, blacksmith, keep, watchtower, buildGate, buildWall, trebuchet] },
   { key: 'nature', title: 'Trees', blurb: 'Neutral map objects, so they carry no team colour.', builders: [buildOak, buildConifer] },
   { key: 'resources', title: 'Resources', blurb: 'What villagers gather. Each fits one 2 m tile and carries no team colour.', builders: [berryBush, buildStone, buildGold] },
 ];

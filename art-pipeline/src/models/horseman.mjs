@@ -2,56 +2,21 @@
 // helm with a nasal, mail shirt, kite shield slung on the left arm, and a lance with a pennon,
 // carried upright at rest and stabbed overarm in the attack. The horse is a small bay of about
 // 1.5 m at the withers under a saddle cloth in the owner's colour.
-// Horse and rider are rigid parts on one joint hierarchy: the barrel carries the neck and head,
-// the tail, four legs of two parts each, and the rider's seat. Nothing bends.
-import { MeshBuilder } from '../mesh.mjs';
-import { T, RX, RY, RZ, qEuler, add } from '../math.mjs';
+// Horse and rider are the rigid parts of the mounted rig, which the knight shares.
+import { T, RX, RY, RZ } from '../math.mjs';
 import { C } from '../palette.mjs';
-import { rigToNodes, arm, sampledClip, samples, keyframes, hitTime, jointQuat } from './figure.mjs';
-import { JOINT, COATS, paintBody, paintSaddle, paintNeck, paintHead, paintLeg, paintCannon, paintTail } from './horse.mjs';
+import { rigToNodes, arm, sampledClip, samples, keyframes, hitTime } from './figure.mjs';
+import { COATS, paintSaddle } from './horse.mjs';
+import { mountedRig, paintHorse, STILL, mountedBindings, mountedIdle, mountedCanter } from './mounted.mjs';
 import { KITE } from './spearman.mjs';
 
-const TAU = Math.PI * 2;
-
 export function build() {
-  let seed = 201;
-  const part = (name, translation, children = []) => ({ name, translation, mb: new MeshBuilder(seed++), children });
-  const leg = (name, joint, knee) => {
-    const cannon = part(`cannon_${name}`, knee);
-    return { upper: part(`leg_${name}`, joint, [cannon]), cannon };
-  };
-  const FL = leg('FL', JOINT.fore(1), JOINT.foreCannon), FR = leg('FR', JOINT.fore(-1), JOINT.foreCannon);
-  const HL = leg('HL', JOINT.hind(1), JOINT.hindCannon), HR = leg('HR', JOINT.hind(-1), JOINT.hindCannon);
-  const horseHead = part('horse_head', JOINT.head);
-  const neck = part('neck', JOINT.neck, [horseHead]);
-  const tail = part('tail', JOINT.tail);
-  const pennon = part('pennon', [0, 1.55, 0]);
-  const spear = part('spear', [0, -0.3, 0.29], [pennon]);
-  const shield = part('shield', [0.1, -0.3, 0.1]);
-  const armL = part('arm_L', [0.31, 0.42, 0], [shield]);
-  const armR = part('arm_R', [-0.31, 0.42, 0], [spear]);
-  const head = part('head', [0, 0.5, 0]);
-  const torso = part('torso', [0, 0.06, 0], [head, armL, armR]);
-  const rider = part('rider', JOINT.saddle, [torso]);
-  const horse = part('horse', JOINT.body, [neck, tail, FL.upper, FR.upper, HL.upper, HR.upper, rider]);
+  const R = mountedRig(201);
+  const { horse, rider, torso, head, armL, armR, shield, spear, pennon } = R;
 
   // ---- Horse -------------------------------------------------------------------------
-  const coat = COATS.bay;
-  paintBody(horse.mb, coat);
+  paintHorse(R, COATS.bay);
   paintSaddle(horse.mb);
-  paintNeck(neck.mb, coat);
-  paintHead(horseHead.mb, coat);
-  // Bridle: a noseband and the cheek straps, which is all that shows at this size.
-  horseHead.mb.color(C.leather, 0.05).at(T(0, 0.05, -0.08), RX(2.2), T(0, 0.36, 0), () => horseHead.mb.box(0.175, 0.05, 0.215, { top: false, bottom: false }));
-  paintTail(tail.mb, coat);
-  for (const l of [FL, FR]) {
-    paintLeg(l.upper.mb, coat);
-    paintCannon(l.cannon.mb, coat);
-  }
-  for (const l of [HL, HR]) {
-    paintLeg(l.upper.mb, coat, true);
-    paintCannon(l.cannon.mb, coat, true);
-  }
 
   // ---- Rider -------------------------------------------------------------------------
   // Seat: the hauberk's skirt spread over the saddle, and the legs hanging astride.
@@ -100,77 +65,11 @@ export function build() {
   const root = rigToNodes({ root: { name: 'root', children: [horse] } });
 
   // ---- Animation ----------------------------------------------------------------------
-  // A pose holds: body [dx, dy, dz] and pitch of the barrel; neck, nod (the horse's head) and
-  // tail [pitch, yaw, roll]; fl, fr, hl, hr as [leg, cannon]; and for the rider torso
-  // [pitch, yaw], look, armL, armR, lance (the lance's lean forward from upright) and droop,
-  // how far its pennon hangs below level.
-  const still = {
-    body: [0, 0, 0], pitch: 0, neck: 0, nod: 0, tail: [0, 0, 0], fl: [0, 0], fr: [0, 0], hl: [0, 0], hr: [0, 0],
-    torso: [0, 0], look: 0, armL: 0, armR: 0, lance: 0, droop: 0,
-  };
-  const bindings = [
-    { part: horse, path: 'translation', value: (p) => add(JOINT.body, p.body) },
-    { part: horse, path: 'rotation', value: (p) => qEuler(p.pitch, 0, 0) },
-    { part: neck, path: 'rotation', value: (p) => qEuler(p.neck, 0, 0) },
-    { part: horseHead, path: 'rotation', value: (p) => qEuler(p.nod, 0, 0) },
-    { part: tail, path: 'rotation', value: (p) => jointQuat(p.tail) },
-    ...[[FL, 'fl'], [FR, 'fr'], [HL, 'hl'], [HR, 'hr']].flatMap(([l, key]) => [
-      { part: l.upper, path: 'rotation', value: (p) => qEuler(p[key][0], 0, 0) },
-      { part: l.cannon, path: 'rotation', value: (p) => qEuler(p[key][1], 0, 0) },
-    ]),
-    { part: torso, path: 'rotation', value: (p) => qEuler(p.torso[0], p.torso[1], 0) },
-    { part: head, path: 'rotation', value: (p) => qEuler(0, p.look, 0) },
-    { part: armL, path: 'rotation', value: (p) => qEuler(p.armL, 0, 0) },
-    { part: armR, path: 'rotation', value: (p) => qEuler(p.armR, 0, 0) },
-    // The lance is set against everything above it, so `lance` is its lean in the world.
-    { part: spear, path: 'rotation', value: (p) => qEuler(p.lance - p.armR - p.torso[0] - p.pitch, 0, 0) },
-    { part: pennon, path: 'rotation', value: (p) => qEuler(p.droop - p.lance, 0, 0) },
-  ];
-
-  const idle = sampledClip('idle', samples(3.2, 16), (t) => {
-    const p = (t / 3.2) * TAU;
-    return {
-      ...still,
-      body: [0, 0.006 * Math.sin(p), 0],
-      neck: 0.05 * Math.sin(p) + 0.025 * Math.sin(2 * p),
-      nod: 0.06 * Math.sin(p + 1),
-      tail: [0.04 * Math.sin(2 * p), 0, 0.22 * Math.sin(2 * p + 0.5)],
-      torso: [0.014 * Math.sin(p), 0.03 * Math.sin(p * 0.5)],
-      look: 0.2 * Math.sin(p),
-      armL: 0.02 * Math.sin(p + 2),
-      armR: 0.03 * Math.sin(p + 1),
-      droop: -0.5 + 0.06 * Math.sin(2 * p),
-    };
-  }, bindings);
-
-  // Canter on the left lead: right hind, then left hind with right fore, then left fore, then
-  // a moment in the air. One loop is one stride of 2.4 m at the game's 4.8 m/s.
-  const STRIDE = 0.5;
-  const swing = (u, phase, reach, fold) => {
-    const p = (u - phase) * TAU;
-    return [-reach * Math.sin(p), fold * Math.max(0, Math.cos(p)) ** 1.3];
-  };
-  const walk = sampledClip('walk', samples(STRIDE, 16), (t) => {
-    const u = t / STRIDE;
-    const pitch = 0.07 * Math.sin((u - 0.55) * TAU);
-    return {
-      ...still,
-      body: [0, 0.045 * Math.cos((u - 0.1) * TAU), 0],
-      pitch,
-      neck: 0.16 - 0.5 * pitch,
-      nod: 0.08 - 0.4 * pitch,
-      tail: [0.85 + 0.12 * Math.sin(u * TAU), 0, 0],
-      hr: swing(u, 0, 0.5, 0.9),
-      hl: swing(u, 0.2, 0.5, 0.9),
-      fr: swing(u, 0.2, 0.56, 1.15),
-      fl: swing(u, 0.45, 0.56, 1.15),
-      torso: [0.16 - 0.6 * pitch, 0.03 * Math.sin(u * TAU)],
-      armL: -0.12,
-      armR: -0.3 + 0.05 * Math.sin(u * TAU),
-      lance: 0.5,
-      droop: 0.08 * Math.sin(2 * u * TAU),
-    };
-  }, bindings);
+  const still = STILL;
+  const bindings = mountedBindings(R);
+  const idle = mountedIdle(bindings, still);
+  // One loop is one stride of 2.4 m at the game's 4.8 m/s.
+  const walk = mountedCanter(bindings, still, { stride: 0.5, lance: 0.5 });
 
   // Overarm thrust: the lance goes up and back over the shoulder, then down past the horse's
   // right shoulder at a man on foot. The blow lands at 0.4 s.
