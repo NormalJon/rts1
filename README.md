@@ -5,7 +5,7 @@ repository holds the eight steps of the core build: the deterministic
 simulation loop; maps, pathfinding and unit movement with a 3D view to play
 it in; resources and gathering; buildings, training and population; combat
 and the counter triangle; fog of war; a skirmish AI to play against; then
-ages and technology. Step nine, under way, carries the simulation and the AI
+ages and technology. Step nine carried the simulation and the AI
 over to C# for a game engine to draw (`csharp/`, with its own README).
 
 ## Commands
