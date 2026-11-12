@@ -110,8 +110,9 @@
     #minimap { width: 104px; height: 104px; }
     .bar { justify-self: stretch; align-items: stretch; min-width: 0; }
     .command { padding-left: 10px; min-width: 0; }
-    .command-head { flex-wrap: wrap; }
-    #orders { flex-wrap: wrap; }
+    .command-head { flex-wrap: wrap; gap: 6px; }
+    #orders { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
+    #orders button { padding: 6px 8px; font-size: 12.5px; }
     #toast { bottom: 190px; }
     button { padding: 7px 10px; }
   }

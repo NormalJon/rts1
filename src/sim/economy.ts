@@ -41,6 +41,8 @@ const SEARCH_RADIUS = 14;
 const CAMP_RADIUS = 10;
 /** How far a builder looks for another site to help at. */
 const NEXT_SITE_RADIUS = 14;
+/** Mending a building from nothing takes this many times as long as building it. */
+const MENDING_SLOWNESS = 6;
 /** How many times it tries to reach a place before giving up on it. */
 const MAX_TRIES = 3;
 /** Two villagers share a tile beside a resource, standing this far either side of its middle. */
@@ -469,9 +471,11 @@ function build(world: World, slot: number): void {
   const typeId = world.entityType[at]!;
   const type = ENTITY_TYPES[typeId]!;
   if (world.built[at] === 1) {
-    // Mending. One villager would restore a building from nothing in twice
-    // the time it took to build. The villager's timer keeps the fractions.
-    const full = type.seconds * world.config.tickRate * 2;
+    // Mending is slow work: one villager would take six times as long to
+    // restore a building from nothing as to build it, which is about what
+    // one spearman hacking at the walls undoes. The villager's timer keeps
+    // the fractions.
+    const full = type.seconds * world.config.tickRate * MENDING_SLOWNESS;
     const work = world.jobTimer[slot]! + type.hp;
     const mended = idiv(work, full);
     world.jobTimer[slot] = work - mended * full;

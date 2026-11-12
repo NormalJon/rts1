@@ -1,15 +1,16 @@
 # Medieval RTS (working title)
 
 A historical real-time strategy game covering roughly 800–1600 CE. This
-repository holds the first four steps of the core build: the deterministic
+repository holds the first five steps of the core build: the deterministic
 simulation loop; maps, pathfinding and unit movement with a 3D view to play
-it in; resources and gathering; then buildings, training and population.
+it in; resources and gathering; buildings, training and population; then
+combat and the counter triangle.
 
 ## Commands
 
 ```bash
 npm install
-npm test               # maths, maps, pathfinding, movement, economy, buildings, determinism, source rules
+npm test               # maths, maps, pathfinding, movement, economy, buildings, combat, determinism, source rules
 npm run typecheck
 npm run dev            # pages at http://localhost:5173
 npm run build          # writes dist/playtest.html and dist/tick-rate-lab.html
@@ -71,7 +72,31 @@ npm run check:browser  # reference match must give the same checksum in a browse
   in the population, which finished town centres and houses provide.
 - **Entity types.** `src/sim/entityTypes.ts` is the one table of units and
   buildings: cost, time, speed, size, carrying capacity, footprint, what a
-  building trains, houses and takes in.
+  building trains, houses and takes in, and everything about fighting: hit
+  points, armour, damage, range, timing and bonuses.
+- **Combat.** `src/sim/combat.ts`. A blow has a wind-up and a pause before
+  the next; arrows always hit, after their time in the air. Damage is the
+  weapon, plus a bonus against the kinds of target it is good against, less
+  armour (one figure against blades, one against arrows), never under 1.
+  Everything dealt in a tick comes off at the end of it, so two who strike
+  together both land.
+
+  | | hp | hit | every | armour | and |
+  |---|---|---|---|---|---|
+  | spearman | 80 | 8 | 1.75 s | 0 / 0 | +16 against horsemen; standing still, turns a charge back on the rider |
+  | archer | 60 | 5 | 1.5 s | 0 / 0 | +5 against spearmen; shoots 5 tiles |
+  | horseman | 120 | 9 | 1.75 s | 0 / 2 | +9 against archers; +10 on the first blow after a run; half as fast again |
+
+  Arrows from ground half a tile higher do a quarter more. Buildings have
+  armour 4 / 8, so blades wear them down slowly and arrows hardly at all.
+  The town centre and the watchtower shoot back.
+- **Orders and enemies.** What a soldier does about an enemy depends on its
+  orders (`OrderKind` in `src/sim/world.ts`). With none it guards its post:
+  it fights what comes within eight tiles, or whoever hits someone of its
+  side within earshot, and then walks back. A plain move ignores the enemy.
+  An attack-move fights whatever it meets and then carries on; a patrol does
+  that to and fro. Hold strikes only what comes within reach. Players can be
+  put on sides (`teams` in the match settings), and allies do not fight.
 
 ## Rules for code in `src/sim`
 
@@ -84,6 +109,13 @@ npm run check:browser  # reference match must give the same checksum in a browse
 - No imports from outside `src/sim`.
 - Add new entity properties with `this.column(...)` in the `World` constructor so the checksum and
   snapshots pick them up automatically.
+
+## Not in yet
+
+Walls, gates and siege engines; garrisoning; fog of war (every unit can be
+seen and targeted); an AI (the playtest's red side follows a short script in
+`src/client/game/main.ts`); ages and technology. Mending a building is free.
+Formations march as a block but do not keep ranks on the way.
 
 If a change alters how a match plays out, the reference checksum in
 `test/determinism.test.ts` (and `scripts/browser-check.mjs`) fails. Update it

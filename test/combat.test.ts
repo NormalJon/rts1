@@ -640,11 +640,11 @@ describe('buildings', () => {
     world.hp[slotOf(house)] = 100;
     const mender = place(world, 0, V, 15, 22);
     send(world, 0, { kind: 'construct', units: [mender], target: house });
-    const ticks = run(world, 2400, () => hp(world, house) === 400);
+    const ticks = run(world, 3600, () => hp(world, house) === 400);
     expect(hp(world, house)).toBe(400);
-    // Three quarters of the house, at a full house every 40 seconds.
-    expect(ticks).toBeGreaterThan(seconds(world, 30));
-    expect(ticks).toBeLessThan(seconds(world, 40));
+    // Three quarters of the house, at a full house every two minutes.
+    expect(ticks).toBeGreaterThan(seconds(world, 90));
+    expect(ticks).toBeLessThan(seconds(world, 100));
     run(world, 100);
     expect(hp(world, house)).toBe(400);
     expect(world.job[slotOf(mender)]).toBe(0);
