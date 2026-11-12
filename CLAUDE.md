@@ -71,9 +71,9 @@ built on the branch `step-9-csharp-rule-tests`, and the owner said merge on
 New rules are to be written in C# with tests in `Rules/` in the same style,
 and what must always be true of them added to `Helpers.BrokenInvariant`.
 
-Step 10, the first picture in Unity, is built on the branch
-`step-10-first-picture` (12 November 2026), pushed, and waiting for the owner
-to look at it and say merge. It shows a match between two skirmish AIs with
+Step 10, the first picture in Unity, is on `main` as well: it was built on
+the branch `step-10-first-picture`, and the owner watched it and said merge
+on 12 November 2026. It shows a match between two skirmish AIs with
 nobody at the controls: the map, the river and its fords, trees and deposits,
 buildings going up, units walking, working and fighting, arrows, health bars,
 and a few lines of text. There are no orders, no selection and no fog yet;
@@ -254,8 +254,8 @@ or timers in game rules.
    frozen as the reference while this is done. **Done, and merged into
    `main` on 12 November 2026.**
 2. First picture in the engine: map, camera, the existing models, watching the
-   AI play itself. **Built as step 10 on `step-10-first-picture`, 12 November
-   2026; not merged until the owner says.**
+   AI play itself. **Done as step 10, and merged into `main` on 12 November
+   2026.**
 3. Playable parity: selection, orders, HUD, minimap, fog, build and research
    panels. Done when a full skirmish plays as it does in the browser.
 4. The graphics pass: lighting, terrain, water, effects, animation, sound, and
@@ -279,7 +279,9 @@ the fuller list of rules that came out of the work)
 
 ## Waiting on the owner
 
-- To watch the match in Unity and say whether to merge step 10.
+- To say what the frame rate is in Unity when a big fight is on screen (the
+  bottom line of the text panel shows it). It has only been measured
+  off-screen.
 - Where the art comes from: bought packs or a commissioned artist, and roughly
   what budget. Not needed until the graphics pass, but worth looking early.
   Claude's suggestion of 12 November 2026, not yet agreed: free scanned
