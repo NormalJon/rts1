@@ -31,6 +31,22 @@ namespace Rts.Tests
             return JsonDocument.Parse(File.ReadAllText(Path.Combine(Directory, fileName)));
         }
 
+        /// <summary>A map as the match settings describe it: {"kind": "flat"}, {"kind": "generated"} or {"kind": "ascii", "rows": [...]}.</summary>
+        public static Rts.Sim.MapSpec ReadMapSpec(JsonElement spec)
+        {
+            switch (spec.GetProperty("kind").GetString())
+            {
+                case "flat":
+                    return Rts.Sim.MapSpec.Flat();
+                case "generated":
+                    return Rts.Sim.MapSpec.Generated();
+                case "ascii":
+                    return Rts.Sim.MapSpec.Ascii(spec.GetProperty("rows").EnumerateArray().Select(row => row.GetString()).ToArray());
+                default:
+                    throw new InvalidDataException("unknown kind of map: " + spec.GetProperty("kind").GetString());
+            }
+        }
+
         /// <summary>The names of the recorded matches, without ".json".</summary>
         public static IEnumerable<string> MatchNames()
         {
